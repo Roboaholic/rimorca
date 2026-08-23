@@ -1,0 +1,281 @@
+name: Fork Unsigned Release
+
+# Why this file exists: official Cut Release / mac / hourly / adhoc jobs are
+# gated to stablyai/orca and need Apple + SignPath secrets this fork does not
+# have. This workflow is the fork equivalent of Anchor Code's tag-triggered
+# unsigned installer publish: push a v* tag, get GitHub Release assets.
+#
+# It must never run on stablyai/orca. Official artifacts stay on the signed
+# Cut Release path.
+#
+# Cut (from this fork):
+#   1. Bump package.json version (must match the tag without the leading v)
+#   2. git tag v1.4.178-rimorca.0
+#   3. git push origin main --follow-tags
+#
+# Manual re-run of an existing tag:
+#   Actions → Fork Unsigned Release → Run workflow
+#   version: 1.4.178-rimorca.0
+#   platforms: mac | win | linux | all
+#
+# Builds are unsigned. macOS Gatekeeper and Windows SmartScreen will warn.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without leading v (must match package.json, e.g. 1.4.178-rimorca.0)
+        required: true
+        type: string
+      platforms:
+        description: Which platforms to build
+        required: true
+        type: choice
+        default: mac
+        options:
+          - mac
+          - win
+          - linux
+          - all
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-unsigned-release-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.event.inputs.version) || github.ref }}
+  cancel-in-progress: false
+
+env:
+  HUSKY: '0'
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  NODE_OPTIONS: --max-old-space-size=8192
+
+jobs:
+  verify:
+    name: Verify version
+    if: github.repository != 'stablyai/orca'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+      - name: Resolve version / tag
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VER="${INPUT_VERSION#v}"
+          else
+            VER="${REF_NAME#v}"
+          fi
+          echo "package.json=$PKG requested=$VER"
+          if [ "$VER" != "$PKG" ]; then
+            echo "::error::Requested version $VER must match package.json version $PKG on this checkout."
+            exit 1
+          fi
+          echo "version=$VER" >>"$GITHUB_OUTPUT"
+          echo "tag=v$VER" >>"$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verify
+    if: github.repository != 'stablyai/orca'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+            timeout: 120
+          - os: windows-2022
+            platform: win
+            timeout: 90
+          - os: ubuntu-22.04
+            platform: linux
+            timeout: 90
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    steps:
+      - name: Decide whether to build this platform
+        id: want
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLATFORMS: ${{ github.event.inputs.platforms }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "build=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$PLATFORMS" = "all" ] || [ "$PLATFORMS" = "$PLATFORM" ]; then
+            echo "build=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "build=false" >>"$GITHUB_OUTPUT"
+            echo "Skipping $PLATFORM (platforms=$PLATFORMS)"
+          fi
+
+      - name: Checkout
+        if: steps.want.outputs.build == 'true'
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        if: steps.want.outputs.build == 'true'
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        if: steps.want.outputs.build == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - name: Cache electron-builder downloads
+        if: steps.want.outputs.build == 'true'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-builder-${{ matrix.platform }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-builder-${{ matrix.platform }}-
+
+      - name: Install dependencies
+        if: steps.want.outputs.build == 'true'
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: pnpm install --frozen-lockfile
+
+      - name: Build app
+        if: steps.want.outputs.build == 'true'
+        run: pnpm build:release
+        env:
+          ORCA_BUILD_COMMIT: ${{ github.sha }}
+
+      - name: Package ${{ matrix.platform }}
+        if: steps.want.outputs.build == 'true'
+        shell: bash
+        env:
+          ORCA_BUILD_COMMIT: ${{ github.sha }}
+          CSC_IDENTITY: ''
+        run: |
+          set -euo pipefail
+          node config/scripts/ensure-native-runtime.mjs --runtime=electron
+          case "${{ matrix.platform }}" in
+            mac)
+              pnpm exec electron-builder --config config/electron-builder.config.cjs --mac --publish never
+              ;;
+            win)
+              pnpm exec electron-builder --config config/electron-builder.config.cjs --win --publish never
+              ;;
+            linux)
+              pnpm exec electron-builder --config config/electron-builder.config.cjs --linux AppImage deb --publish never
+              ;;
+          esac
+
+      - name: Stage installers for upload
+        if: steps.want.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staged
+          case "${{ matrix.platform }}" in
+            mac)
+              find dist -maxdepth 1 -type f \( \
+                -name 'orca-macos-*.dmg' -o -name 'orca-macos-*.zip' -o \
+                -name '*.blockmap' -o -name 'latest-mac.yml' \
+              \) -exec cp -v {} staged/ \;
+              ;;
+            win)
+              find dist -maxdepth 1 -type f \( \
+                -name 'orca-windows-setup.exe' -o -name '*.blockmap' -o -name 'latest.yml' \
+              \) -exec cp -v {} staged/ \;
+              ;;
+            linux)
+              find dist -maxdepth 1 -type f \( \
+                -name 'orca-linux*.AppImage' -o -name 'orca-ide_*.deb' -o -name 'latest-linux.yml' \
+              \) -exec cp -v {} staged/ \;
+              ;;
+          esac
+          echo "--- staged ---"
+          ls -la staged || true
+          count="$(find staged -type f | wc -l | tr -d ' ')"
+          echo "staged file count=$count"
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "::error::No installer artifacts staged for ${{ matrix.platform }}"
+            echo "--- dist ---"
+            ls -la dist || true
+            find dist -maxdepth 2 -type f | sort || true
+            exit 1
+          fi
+
+      - name: Upload artifacts to job
+        if: steps.want.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.platform }}
+          path: staged/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: [verify, build]
+    if: ${{ always() && !cancelled() && github.repository != 'stablyai/orca' && needs.verify.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-packages
+          pattern: packages-*
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: |
+          find dist-packages -type f | sort || true
+          count="$(find dist-packages -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "downloaded count=$count"
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "::error::No package artifacts downloaded — nothing to publish"
+            exit 1
+          fi
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: ${{ needs.verify.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          prerelease: true
+          body: |
+            Unsigned fork build of rimorca. Not an official Orca release.
+
+            macOS Gatekeeper and Windows SmartScreen will warn; use Open Anyway / Run anyway.
+          files: |
+            dist-packages/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
