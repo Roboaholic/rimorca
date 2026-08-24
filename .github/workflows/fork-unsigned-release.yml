@@ -168,6 +168,9 @@ jobs:
           retry_wait_seconds: 30
           command: pnpm install --frozen-lockfile
 
+      - name: Install Linux computer-use provider dependencies
+        if: runner.os == 'Linux' && steps.want.outputs.build == 'true'
+        run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-atspi-2.0 at-spi2-core xclip xdotool rpm
       - name: Build app
         if: steps.want.outputs.build == 'true'
         run: pnpm build:release
