@@ -1203,6 +1203,10 @@ import {
   inferFolderWorkspacePathConnection
 } from '../project-groups/folder-workspace-path-status'
 import {
+  deleteFolderWorkspaceWithDerivedRepo,
+  removeDerivedRepoPath
+} from '../project-groups/repo-managed-cleanup'
+import {
   getSshGitProvider,
   getSshGitProviderGeneration,
   requireSshGitProvider
@@ -20947,11 +20951,15 @@ export class OrcaRuntimeService {
       throw new Error('runtime_unavailable')
     }
     const runtimeStore = this.store
+    const createFolderWorkspace = runtimeStore.createFolderWorkspace
+    if (!createFolderWorkspace) {
+      throw new Error('runtime_unavailable')
+    }
     const workspace = await deriveRepoManagedFolderWorkspace({
       store: {
         getSettings: () => runtimeStore.getSettings(),
         getProjectGroups: () => runtimeStore.getProjectGroups?.() ?? [],
-        createFolderWorkspace: runtimeStore.createFolderWorkspace
+        createFolderWorkspace
       },
       ...input
     })
@@ -21026,10 +21034,17 @@ export class OrcaRuntimeService {
   }
 
   async deleteFolderWorkspace(folderWorkspaceId: string): Promise<{ deleted: boolean }> {
-    if (!this.store?.removeFolderWorkspace) {
+    if (!this.store?.removeFolderWorkspace || !this.store.getFolderWorkspaces) {
       throw new Error('runtime_unavailable')
     }
-    const deleted = this.store.removeFolderWorkspace(folderWorkspaceId)
+    const deleted = await deleteFolderWorkspaceWithDerivedRepo({
+      folderWorkspaceId,
+      getFolderWorkspace: (id) =>
+        this.store?.getFolderWorkspaces?.().find((workspace) => workspace.id === id),
+      getProjectGroups: () => this.store?.getProjectGroups?.() ?? [],
+      removeFolderWorkspace: (id) => this.store?.removeFolderWorkspace?.(id) ?? false,
+      removePath: async (path) => removeDerivedRepoPath(path)
+    })
     if (deleted) {
       this.notifyReposChanged()
     }

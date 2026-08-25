@@ -1,17 +1,19 @@
 import { normalizeRuntimePathForComparison } from './cross-platform-path'
 import type { FolderWorkspace } from './folder-workspace-types'
-import type { NestedRepoScanResult, ProjectGroup, ProjectGroupCreatedFrom } from './project-group-types'
+import type {
+  NestedRepoScanResult,
+  ProjectGroup,
+  ProjectGroupCreatedFrom
+} from './project-group-types'
 
 export const REPO_MANAGED_CREATED_FROM = 'repo-managed' satisfies ProjectGroupCreatedFrom
-export const REPO_MANAGED_SCAN_KIND = 'repo_managed' satisfies NestedRepoScanResult['selectedPathKind']
+export const REPO_MANAGED_SCAN_KIND =
+  'repo_managed' satisfies NestedRepoScanResult['selectedPathKind']
 
 export const REPO_METADATA_DIR = '.repo'
 export const REPO_MANAGED_MARKERS = ['manifest.xml', 'project.list'] as const
 
-const FOLDER_BACKED_CREATED_FROM = new Set<ProjectGroupCreatedFrom>([
-  'folder-scan',
-  'repo-managed'
-])
+const FOLDER_BACKED_CREATED_FROM = new Set<ProjectGroupCreatedFrom>(['folder-scan', 'repo-managed'])
 
 export function isRepoManagedCreatedFrom(
   createdFrom: ProjectGroup['createdFrom'] | null | undefined
@@ -23,6 +25,26 @@ export function isRepoManagedProjectGroup(
   group: Pick<ProjectGroup, 'createdFrom'> | null | undefined
 ): boolean {
   return isRepoManagedCreatedFrom(group?.createdFrom)
+}
+export function isDerivedRepoManagedWorkspace(args: {
+  workspace: Pick<FolderWorkspace, 'folderPath' | 'projectGroupId'>
+  group: Pick<ProjectGroup, 'id' | 'createdFrom' | 'parentPath'> | null | undefined
+}): boolean {
+  const parentPath = args.group?.parentPath
+  if (
+    !parentPath ||
+    args.workspace.projectGroupId !== args.group?.id ||
+    !isRepoManagedProjectGroup(args.group)
+  ) {
+    return false
+  }
+  const parentKey = normalizeRuntimePathForComparison(parentPath)
+  const workspaceKey = normalizeRuntimePathForComparison(args.workspace.folderPath)
+  if (parentKey === workspaceKey) {
+    return false
+  }
+  const separator = parentKey.includes('\\') ? '\\' : '/'
+  return workspaceKey.startsWith(`${parentKey}${separator}`)
 }
 
 export function isRepoManagedScan<T extends Pick<NestedRepoScanResult, 'selectedPathKind'>>(

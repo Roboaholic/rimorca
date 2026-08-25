@@ -62,6 +62,10 @@ import {
 } from '../git/repo-clone-path'
 import type { ClaimedCloneTarget } from '../git/repo-clone-path'
 import { scanNestedRepos } from '../project-groups/nested-repo-discovery'
+import {
+  deleteFolderWorkspaceWithDerivedRepo,
+  removeDerivedRepoPath
+} from '../project-groups/repo-managed-cleanup'
 import { importRepoManagedProject } from '../project-groups/repo-managed-import'
 import { deriveRepoManagedFolderWorkspace } from '../project-groups/repo-managed-derive'
 import { repoManagedDeriveProgress } from '../../shared/repo-managed-derive-progress'
@@ -1658,13 +1662,29 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     }
   )
 
-  ipcMain.handle('folderWorkspaces:delete', (_event, rawArgs: unknown): boolean => {
+  ipcMain.handle('folderWorkspaces:delete', async (_event, rawArgs: unknown): Promise<boolean> => {
     const args = parseProjectGroupIpcArgs(
       FolderWorkspaceSelectorArgs,
       rawArgs,
       'invalid_folder_workspace_delete_args'
     )
-    const deleted = store.removeFolderWorkspace(args.folderWorkspaceId)
+    const deleted = await deleteFolderWorkspaceWithDerivedRepo({
+      folderWorkspaceId: args.folderWorkspaceId,
+      getFolderWorkspace: (id) => store.getFolderWorkspace(id),
+      getProjectGroups: () => store.getProjectGroups(),
+      removeFolderWorkspace: (id) => store.removeFolderWorkspace(id),
+      removePath: async (path, connectionId) => {
+        if (connectionId) {
+          const provider = getSshFilesystemProvider(connectionId)
+          if (!provider) {
+            throw new Error('Remote connection dropped. Reconnect before removing this workspace.')
+          }
+          await provider.deletePath(path, true)
+          return
+        }
+        await removeDerivedRepoPath(path)
+      }
+    })
     if (deleted) {
       notifyReposChanged(mainWindow)
     }

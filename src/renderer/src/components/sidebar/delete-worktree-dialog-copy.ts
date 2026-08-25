@@ -24,7 +24,9 @@ export function countFolderWorkspaceDeletes(
 
 export function getDeleteWorktreeDialogCopy(args: {
   isBatchDelete: boolean
-  worktree: Pick<Worktree, 'displayName'> | null
+  worktree:
+    | (Pick<Worktree, 'displayName'> & Partial<Pick<Worktree, 'repoId' | 'creatorProvenance'>>)
+    | null
   worktreeCount: number
   folderWorkspaceDeleteCount: number
   isFolderWorkspaceDelete: boolean
@@ -53,8 +55,8 @@ export function getDeleteWorktreeDialogCopy(args: {
       ? allFolderWorkspaceDeletes
         ? 'from Orca. Project folders on disk will not be deleted.'
         : mixedFolderWorkspaceDeletes
-          ? 'from Orca. Git worktrees will also be removed from git and disk; folder workspaces will only remove the Orca workspace entry.'
-          : 'from git and delete their workspace folders.'
+          ? 'from Orca. Git worktree folders will be deleted; project folders on disk will not be deleted.'
+          : 'from git and delete its workspace folder.'
       : args.isFolderWorkspaceDelete
         ? 'from Orca. The project folder on disk will not be deleted.'
         : 'from git and delete its workspace folder.',
