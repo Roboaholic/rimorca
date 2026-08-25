@@ -61,6 +61,7 @@ import {
   getClonePathComparisonKey
 } from '../git/repo-clone-path'
 import type { ClaimedCloneTarget } from '../git/repo-clone-path'
+import { parseWslPath } from '../wsl'
 import { scanNestedRepos } from '../project-groups/nested-repo-discovery'
 import {
   deleteFolderWorkspaceWithDerivedRepo,
@@ -1193,10 +1194,12 @@ async function scanNestedReposForIpc(args: {
 }): Promise<NestedRepoScanResult> {
   validateNestedRepoScanRoot(args.path, args.connectionId)
   if (!args.connectionId) {
-    await awaitWindowsHostGitEnvironmentReady({
-      cwd: args.path,
-      ...(args.signal ? { signal: args.signal } : {})
-    })
+    if (!parseWslPath(args.path)) {
+      await awaitWindowsHostGitEnvironmentReady({
+        cwd: args.path,
+        ...(args.signal ? { signal: args.signal } : {})
+      })
+    }
     return scanNestedRepos({
       path: args.path,
       options: args.options,
@@ -1385,7 +1388,9 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
         continue
       }
       try {
-        const scan = await scanNestedRepos({ path: repo.path, options: { timeoutMs: 5_000 } })
+        const scan = parseWslPath(repo.path)
+          ? await scanNestedRepos({ path: repo.path, options: { timeoutMs: 5_000 } })
+          : await scanNestedReposForIpc({ path: repo.path, options: { timeoutMs: 5_000 } })
         if (scan.selectedPathKind !== 'repo_managed') {
           continue
         }

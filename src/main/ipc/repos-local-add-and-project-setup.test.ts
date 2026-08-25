@@ -44,6 +44,7 @@ import { createRepoHandlerHarness, resetLocalRepoMocks } from './repos-remote-te
 const {
   handleMock,
   mockStore,
+  gitExecFileAsyncMock,
   invalidateAuthorizedRootsCacheMock,
   prepareLocalWorktreeRootForRepoMock
 } = reposMocks
@@ -100,6 +101,7 @@ describe('repos:add + repos:clone', () => {
     expect(mockStore.createProjectGroup).toHaveBeenCalledWith(
       expect.objectContaining({ createdFrom: 'repo-managed', parentPath: existing.path })
     )
+    expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
   it('inherits global non-Orca visibility while retaining the mixed-version safety marker', async () => {
