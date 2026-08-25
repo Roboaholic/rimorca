@@ -51,8 +51,9 @@ export async function assemblePtyIpcSpawnCodexEnv(ctx: PtyIpcSpawnState): Promis
   // Why: declared after the strip so a local-provider spawn cannot capture the
   // pre-strip env — only the daemon branch below re-derives this from baseEnv.
   ctx.env = ctx.baseEnv
+  const needsCodexHome = args.launchAgent === 'codex' || codexResumeHome !== null
   ctx.selectedCodexHomePath =
-    !ctx.preAdoptedStablePane && !args.connectionId
+    needsCodexHome && !ctx.preAdoptedStablePane && !args.connectionId
       ? getCompatibleSelectedCodexHomePath(
           ctx.codexSelectionTarget,
           codexResumeHome
@@ -67,7 +68,7 @@ export async function assemblePtyIpcSpawnCodexEnv(ctx: PtyIpcSpawnState): Promis
               )
             : (ctx.deps.getSelectedCodexHomePath?.(ctx.codexSelectionTarget, ctx.baseEnv, {
                 workspacePath: ctx.cwd,
-                launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined
+                launchAgent: 'codex'
               }) ?? null)
         )
       : null

@@ -1,7 +1,7 @@
 import { access, mkdir, realpath } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { constants as fsConstants } from 'node:fs'
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../shared/project-group-types'
 import { isRepoManagedProjectGroup } from '../../shared/repo-managed-project'
@@ -15,25 +15,29 @@ import {
   buildRepoInitArgs,
   buildRepoSyncArgs,
   readRepoManagedCheckoutIdentity,
+  normalizeRepoInitArgsForWsl,
   type RepoManagedCheckoutIdentity
 } from './repo-managed-checkout'
 import { resolveRepoProgram } from './repo-managed-cli'
 import {
-  REPO_MANAGED_LOCAL_OBJECTS_MISSING,
   seedDerivedRepoProjectGitDirs,
+  syncRepoManagedMetadata,
   type RepoManagedSeedProgress
 } from './repo-managed-seed'
 import { createRepoSyncProgressParser } from './repo-sync-progress'
 import { removeDerivedRepoPath } from './repo-managed-cleanup'
 import type { RepoManagedDerivePhase } from '../../shared/repo-managed-derive-progress'
 export type { RepoManagedDerivePhase } from '../../shared/repo-managed-derive-progress'
-export { REPO_MANAGED_LOCAL_OBJECTS_MISSING, seedDerivedRepoProjectGitDirs }
+export {
+  REPO_MANAGED_LOCAL_OBJECTS_MISSING,
+  seedDerivedRepoProjectGitDirs
+} from './repo-managed-seed'
 export const REPO_MANAGED_DERIVE_SSH_UNSUPPORTED =
   'Deriving a repo workspace on SSH requires an Orca runtime on that host.'
 export const REPO_TOOL_MISSING =
   'The repo CLI was not found. Install it from the workspace composer, or open a checkout that contains .repo/repo.'
 export const REPO_MANAGED_GROUP_REQUIRED = 'Selected project is not a repo-managed checkout.'
-const REPO_COMMAND_TIMEOUT_MS = 60 * 60 * 1000
+const REPO_COMMAND_TIMEOUT_MS = 3_600_000
 export type RepoManagedCommandRunner = (args: {
   program: string
   args: readonly string[]
@@ -195,7 +199,7 @@ export async function materializeRepoManagedCheckout(args: {
       program,
       args: normalizeRepoInitArgsForWsl(
         buildRepoInitArgs({ identity, referencePath: args.mainPath }),
-        wsl
+        wsl ? { distro: wsl.distro, parsePath: parseWslPath } : null
       ),
       cwd: args.destPath,
       signal: args.signal
@@ -203,6 +207,7 @@ export async function materializeRepoManagedCheckout(args: {
     if (initResult.code !== 0) {
       throw new Error(formatRepoCommandFailure('init', initResult.stderr, initResult.stdout))
     }
+    await syncRepoManagedMetadata({ mainPath: args.mainPath, destPath: args.destPath })
     args.onPhase?.('seed')
     await seedDerivedRepoProjectGitDirs({
       mainPath: args.mainPath,
@@ -230,21 +235,6 @@ export async function materializeRepoManagedCheckout(args: {
   }
 }
 
-function normalizeRepoInitArgsForWsl(
-  args: readonly string[],
-  wsl: { distro: string } | null
-): string[] {
-  if (!wsl) {
-    return [...args]
-  }
-  return args.map((arg) => {
-    if (/^\\\\wsl\.localhost\\/i.test(arg) || /^\\\\wsl\$\\/i.test(arg)) {
-      const parsed = parseWslPath(arg)
-      return parsed?.distro === wsl.distro ? parsed.linuxPath : arg
-    }
-    return arg
-  })
-}
 export async function deriveRepoManagedFolderWorkspace(args: {
   store: RepoManagedDeriveStore
   projectGroupId: string

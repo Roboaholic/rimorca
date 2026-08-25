@@ -59,7 +59,14 @@ export function renderFolderWorkspaceVirtualRow(args: {
   measureVirtualRowElement: (element: HTMLDivElement | null) => void
 }): React.JSX.Element {
   const { ctx, row, vItem } = args
-  const folderWorktree = folderWorkspaceToWorktree(row.folderWorkspace)
+  const baseFolderWorktree = folderWorkspaceToWorktree(row.folderWorkspace)
+  const isDerivedWorkspace =
+    row.projectGroup.createdFrom === 'repo-managed' &&
+    row.projectGroup.parentPath !== null &&
+    row.folderWorkspace.folderPath !== row.projectGroup.parentPath
+  const folderWorktree = isDerivedWorkspace
+    ? { ...baseFolderWorktree, displayName: `Derived · ${baseFolderWorktree.displayName}` }
+    : baseFolderWorktree
   const folderWorktreeIdentity = getWorktreeHostIdentity(folderWorktree)
   const pathStatus = ctx.getCachedFolderWorkspacePathStatus({
     scope: 'folder-workspace',

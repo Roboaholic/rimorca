@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -46,8 +46,12 @@ afterEach(async () => {
 
 async function writeMinimalRepoTree(mainPath: string): Promise<void> {
   await mkdir(join(mainPath, '.repo', 'repo'), { recursive: true })
+  await mkdir(join(mainPath, '.repo', 'manifests'), { recursive: true })
   await writeFile(join(mainPath, '.repo', 'repo', 'repo'), '#!/bin/sh\n')
   await writeFile(join(mainPath, '.repo', 'manifest.xml'), '<manifest />\n')
+  await writeFile(join(mainPath, '.repo', 'manifests', 'default.xml'), '<manifest />\n')
+  await writeFile(join(mainPath, '.repo', 'project.list'), 'app\n')
+  await mkdir(join(mainPath, '.repo', 'projects', 'app.git'), { recursive: true })
 }
 
 function repoManagedGroup(parentPath: string, overrides: Partial<ProjectGroup> = {}): ProjectGroup {
@@ -122,6 +126,10 @@ describe('materializeRepoManagedCheckout', () => {
     ])
     expect(phases).toEqual(['preparing', 'init', 'seed', 'sync'])
     await expect(stat(destPath)).resolves.toBeTruthy()
+    await expect(readFile(join(destPath, '.repo', 'project.list'), 'utf8')).resolves.toBe('app\n')
+    await expect(
+      readFile(join(destPath, '.repo', 'manifests', 'default.xml'), 'utf8')
+    ).resolves.toBe('<manifest />\n')
   })
 
   it('deletes the destination when repo sync fails', async () => {

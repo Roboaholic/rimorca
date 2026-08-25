@@ -1440,8 +1440,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
             repoManagedGroupIdByPath.set(pathKey, groupId)
           }
         }
-        if (groupId && repo.projectGroupId !== groupId) {
-          store.updateRepo(repo.id, { projectGroupId: groupId })
+        if (groupId) {
+          const updates = {
+            ...(repo.projectGroupId !== groupId ? { projectGroupId: groupId } : {}),
+            ...(repo.kind === 'git' ? { kind: 'folder' as const } : {})
+          }
+          if (Object.keys(updates).length > 0) {
+            store.updateRepo(repo.id, updates)
+          }
         }
       } catch {
         // A folder may be temporarily unavailable, especially across a WSL boundary.

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, stat } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { constants as fsConstants } from 'node:fs'
 import { gitExecFileAsync } from '../git/runner'
@@ -28,6 +28,66 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+export async function syncRepoManagedMetadata(args: {
+  mainPath: string
+  destPath: string
+}): Promise<void> {
+  const projectList = join(args.mainPath, '.repo', 'project.list')
+  const hasProjectList = await pathExists(projectList)
+  const wsl = parseWslPath(args.destPath)
+  if (!wsl) {
+    const metadataRoot = join(args.mainPath, '.repo')
+    const destinationRoot = join(args.destPath, '.repo')
+    const manifestXml = join(metadataRoot, 'manifest.xml')
+    const manifests = join(metadataRoot, 'manifests')
+    const manifestsGit = join(metadataRoot, 'manifests.git')
+    if (await pathExists(manifestXml)) {
+      await cp(manifestXml, join(destinationRoot, 'manifest.xml'))
+    }
+    if (await pathExists(manifests)) {
+      await cp(manifests, join(destinationRoot, 'manifests'), { recursive: true })
+    }
+    if (await pathExists(manifestsGit)) {
+      await cp(manifestsGit, join(destinationRoot, 'manifests.git'), { recursive: true })
+    }
+    if (hasProjectList) {
+      await cp(projectList, join(destinationRoot, 'project.list'))
+    }
+    return
+  }
+  const source = parseWslPath(args.mainPath)?.linuxPath ?? args.mainPath
+  const target = parseWslPath(args.destPath)?.linuxPath ?? args.destPath
+  const sourceArgs = [
+    `${source}/.repo/manifest.xml`,
+    `${source}/.repo/manifests`,
+    `${source}/.repo/manifests.git`,
+    ...(hasProjectList ? [`${source}/.repo/project.list`] : [])
+  ]
+  const result = await runProcess({
+    program: 'wsl.exe',
+    args: buildWslExecArgs(wsl.distro, [
+      '/bin/bash',
+      '-c',
+      'set -e; target=$1; source=$2; shift 2; cp -a -- "$@" "$target/.repo/"; rm -rf "$target/.repo/project-objects"; ln -s "$source/.repo/project-objects" "$target/.repo/project-objects"',
+      'bash',
+      target,
+      source,
+      ...sourceArgs
+    ]),
+    timeoutMs: REPO_SEED_GIT_TIMEOUT_MS
+  })
+  if (result.code !== 0) {
+    throw new Error(result.stderr || result.stdout || 'Failed to copy repo metadata')
+  }
+}
+
+export async function syncRepoManagedProjectList(args: {
+  mainPath: string
+  destPath: string
+}): Promise<void> {
+  await syncRepoManagedMetadata(args)
 }
 
 async function readProjectRelPaths(rootPath: string): Promise<string[]> {
@@ -171,11 +231,11 @@ export async function seedDerivedRepoProjectGitDirs(args: {
   destPath: string
   onProgress?: (progress: RepoManagedSeedProgress) => void
 }): Promise<number> {
+  let seeded = 0
   const destRelPaths = await readProjectRelPaths(args.destPath)
   const relPaths = destRelPaths.length > 0 ? destRelPaths : await readProjectRelPaths(args.mainPath)
   const wsl = parseWslPath(args.destPath)
   const projects: WslSeedProject[] = []
-  let seeded = 0
 
   for (const relPath of relPaths) {
     const sourceGitDir = await resolveSourceProjectGitDir(args.mainPath, relPath)

@@ -98,6 +98,15 @@ describe('folder workspaces render under every Group by mode', () => {
   })
 })
 
+describe('repo-managed project grouping', () => {
+  it('hides the same-root compatibility repo section', () => {
+    const repoManagedGroup = { ...GROUP, createdFrom: 'repo-managed' as const }
+    const rows = buildSidebarRows({ groupBy: 'repo', projectGroups: [repoManagedGroup] })
+    expect(rows.filter((row) => row.type === 'repo-item')).toHaveLength(0)
+    expect(folderRows(rows)).toHaveLength(1)
+  })
+})
+
 describe('a folder workspace can be the only member of a lane', () => {
   it('creates its status lane with no worktrees present', () => {
     const rows = buildSidebarRows({ groupBy: 'workspace-status', worktrees: [] })

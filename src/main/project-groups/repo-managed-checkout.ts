@@ -117,6 +117,24 @@ export function buildRepoInitArgs(args: {
   }
   return initArgs
 }
+export function normalizeRepoInitArgsForWsl(
+  args: readonly string[],
+  wsl: {
+    distro: string
+    parsePath: (path: string) => { distro: string; linuxPath: string } | null
+  } | null
+): string[] {
+  if (!wsl) {
+    return [...args]
+  }
+  return args.map((arg) => {
+    if (!/^\\\\wsl\.localhost\\/i.test(arg) && !/^\\\\wsl\$\\/i.test(arg)) {
+      return arg
+    }
+    const parsed = wsl.parsePath(arg)
+    return parsed?.distro === wsl.distro ? parsed.linuxPath : arg
+  })
+}
 
 export function buildRepoSyncArgs(): string[] {
   return ['sync', '--local-only', '--no-manifest-update', '--verbose', '-j8']

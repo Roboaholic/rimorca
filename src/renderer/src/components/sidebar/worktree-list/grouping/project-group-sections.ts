@@ -15,6 +15,8 @@ import {
   withRepoSectionDisplayLabels
 } from './section-order'
 import { buildFolderWorkspaceRow } from './row-builders'
+import { normalizeRuntimePathForComparison } from '../../../../../../shared/cross-platform-path'
+import { isRepoManagedProjectGroup } from '../../../../../../shared/repo-managed-project'
 
 export function appendProjectGroupSections(
   ctx: SectionAppendContext,
@@ -92,9 +94,18 @@ export function appendProjectGroupSections(
       directCount + folderWorkspaceCount
     )
   }
-
   const appendProjectGroup = (projectGroup: ProjectGroup, depth: number): void => {
-    const repoEntries = sortRepoEntriesWithinGroup(groupByProjectGroupId.get(projectGroup.id) ?? [])
+    const groupPath = projectGroup.parentPath
+      ? normalizeRuntimePathForComparison(projectGroup.parentPath)
+      : null
+    const rawRepoEntries = groupByProjectGroupId.get(projectGroup.id) ?? []
+    const visibleRepoEntries =
+      isRepoManagedProjectGroup(projectGroup) && groupPath
+        ? rawRepoEntries.filter(
+            ([, entry]) => normalizeRuntimePathForComparison(entry.repo?.path ?? '') !== groupPath
+          )
+        : rawRepoEntries
+    const repoEntries = sortRepoEntriesWithinGroup(visibleRepoEntries)
     const childGroups = childGroupsByParentId.get(projectGroup.id) ?? []
     const key = getProjectGroupHeaderKey(projectGroup.id)
     result.push({
