@@ -409,7 +409,7 @@ describe('scanNestedRepos', () => {
     expect(result.repos.map((repo) => repo.displayName)).toEqual(['app'])
   })
 
-  it('prefers a selected git repo over a nested .repo tree', async () => {
+  it('prefers a repo-managed root when both .repo and .git markers exist', async () => {
     const root = await tempRoot()
     await makeGitRepo(root)
     await mkdir(join(root, '.repo'), { recursive: true })
@@ -417,7 +417,7 @@ describe('scanNestedRepos', () => {
 
     const result = await scanNestedRepos({ path: root })
 
-    expect(result.selectedPathKind).toBe('git_repo')
+    expect(result.selectedPathKind).toBe('repo_managed')
     expect(result.repos).toEqual([])
   })
 

@@ -62,6 +62,8 @@ import {
 } from '../git/repo-clone-path'
 import type { ClaimedCloneTarget } from '../git/repo-clone-path'
 import { parseWslPath } from '../wsl'
+import { runProcess } from '../../shared/child-process/run-process'
+import { buildWslExecArgs } from '../../shared/wsl-login-shell-command'
 import { scanNestedRepos } from '../project-groups/nested-repo-discovery'
 import {
   deleteFolderWorkspaceWithDerivedRepo,
@@ -1185,6 +1187,25 @@ async function resolveSshProjectGroupPath(connectionId: string, path: string): P
   return path
 }
 
+export async function pathLooksLikeRepoManagedRootInWsl(path: string): Promise<boolean> {
+  const wsl = parseWslPath(path)
+  if (!wsl) {
+    return false
+  }
+  const result = await runProcess({
+    program: 'wsl.exe',
+    args: buildWslExecArgs(wsl.distro, [
+      '/bin/sh',
+      '-c',
+      'test -d "$1/.repo" && { test -e "$1/.repo/manifest.xml" || test -e "$1/.repo/project.list"; }',
+      'sh',
+      wsl.linuxPath
+    ]),
+    timeoutMs: 5_000
+  })
+  return result.code === 0
+}
+
 async function scanNestedReposForIpc(args: {
   path: string
   connectionId?: string
@@ -1192,6 +1213,20 @@ async function scanNestedReposForIpc(args: {
   signal?: AbortSignal
   onProgress?: (scan: NestedRepoScanResult) => void
 }): Promise<NestedRepoScanResult> {
+  if (!args.connectionId && (await pathLooksLikeRepoManagedRootInWsl(args.path))) {
+    return {
+      selectedPath: args.path,
+      selectedPathKind: 'repo_managed',
+      repos: [],
+      truncated: false,
+      timedOut: false,
+      stopped: false,
+      durationMs: 0,
+      maxDepth: 0,
+      maxRepos: 0,
+      timeoutMs: null
+    }
+  }
   validateNestedRepoScanRoot(args.path, args.connectionId)
   if (!args.connectionId) {
     if (!parseWslPath(args.path)) {
@@ -1388,9 +1423,10 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
         continue
       }
       try {
-        const scan = parseWslPath(repo.path)
-          ? await scanNestedRepos({ path: repo.path, options: { timeoutMs: 5_000 } })
-          : await scanNestedReposForIpc({ path: repo.path, options: { timeoutMs: 5_000 } })
+        const scan = await scanNestedReposForIpc({
+          path: repo.path,
+          options: { timeoutMs: 5_000 }
+        })
         if (scan.selectedPathKind !== 'repo_managed') {
           continue
         }

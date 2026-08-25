@@ -275,14 +275,14 @@ export async function scanNestedRepos(args: {
     args.onProgress?.(buildResult('non_git_folder'))
   }
 
-  if (await filesystem.isSelectedPathGitRepo(args.path)) {
-    return buildResult('git_repo')
+  if (filesystem.hasRepoMarker && (await filesystem.hasRepoMarker(args.path))) {
+    return buildResult('repo_managed')
   }
   if (noteAbort()) {
     return buildResult('non_git_folder')
   }
-  if (filesystem.hasRepoMarker && (await filesystem.hasRepoMarker(args.path))) {
-    return buildResult('repo_managed')
+  if (await filesystem.isSelectedPathGitRepo(args.path)) {
+    return buildResult('git_repo')
   }
   if (noteAbort()) {
     return buildResult('non_git_folder')
