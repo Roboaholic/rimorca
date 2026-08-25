@@ -1408,35 +1408,41 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   const broadcastReposChanged = (): void => notifyReposChanged(mainWindow)
 
   async function migrateExistingRepoManagedFolders(store: Store): Promise<void> {
-    const repoManagedGroups = new Set(
+    const repoManagedGroupIdByPath = new Map(
       store
         .getProjectGroups()
-        .filter((group) => group.createdFrom === 'repo-managed')
-        .map((group) => normalizeRuntimePathForComparison(group.parentPath ?? ''))
+        .filter((group) => group.createdFrom === 'repo-managed' && group.parentPath)
+        .map((group) => [normalizeRuntimePathForComparison(group.parentPath!), group.id])
     )
     for (const repo of store.getRepos()) {
-      if (repo.kind !== 'folder' || repo.connectionId) {
+      if (repo.connectionId) {
         continue
       }
       const pathKey = normalizeRuntimePathForComparison(repo.path)
-      if (repoManagedGroups.has(pathKey)) {
-        continue
-      }
       try {
-        const scan = await scanNestedReposForIpc({
-          path: repo.path,
-          options: { timeoutMs: 5_000 }
-        })
-        if (scan.selectedPathKind !== 'repo_managed') {
-          continue
+        let groupId = repoManagedGroupIdByPath.get(pathKey)
+        if (!groupId) {
+          const scan = await scanNestedReposForIpc({
+            path: repo.path,
+            options: { timeoutMs: 5_000 }
+          })
+          if (scan.selectedPathKind !== 'repo_managed') {
+            continue
+          }
+          const imported = importRepoManagedProject({
+            store,
+            parentPath: scan.selectedPath,
+            groupName: repo.displayName,
+            connectionId: null
+          })
+          groupId = imported.group?.id
+          if (groupId) {
+            repoManagedGroupIdByPath.set(pathKey, groupId)
+          }
         }
-        importRepoManagedProject({
-          store,
-          parentPath: scan.selectedPath,
-          groupName: repo.displayName,
-          connectionId: null
-        })
-        repoManagedGroups.add(pathKey)
+        if (groupId && repo.projectGroupId !== groupId) {
+          store.updateRepo(repo.id, { projectGroupId: groupId })
+        }
       } catch {
         // A folder may be temporarily unavailable, especially across a WSL boundary.
       }
