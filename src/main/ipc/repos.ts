@@ -1369,7 +1369,41 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   // closure per list call would stack up (and re-broadcast) for the length of a slow sweep.
   const broadcastReposChanged = (): void => notifyReposChanged(mainWindow)
 
-  ipcMain.handle('repos:list', () => {
+  async function migrateExistingRepoManagedFolders(store: Store): Promise<void> {
+    const repoManagedGroups = new Set(
+      store
+        .getProjectGroups()
+        .filter((group) => group.createdFrom === 'repo-managed')
+        .map((group) => normalizeRuntimePathForComparison(group.parentPath ?? ''))
+    )
+    for (const repo of store.getRepos()) {
+      if (repo.kind !== 'folder' || repo.connectionId) {
+        continue
+      }
+      const pathKey = normalizeRuntimePathForComparison(repo.path)
+      if (repoManagedGroups.has(pathKey)) {
+        continue
+      }
+      try {
+        const scan = await scanNestedRepos({ path: repo.path, options: { timeoutMs: 5_000 } })
+        if (scan.selectedPathKind !== 'repo_managed') {
+          continue
+        }
+        importRepoManagedProject({
+          store,
+          parentPath: scan.selectedPath,
+          groupName: repo.displayName,
+          connectionId: null
+        })
+        repoManagedGroups.add(pathKey)
+      } catch {
+        // A folder may be temporarily unavailable, especially across a WSL boundary.
+      }
+    }
+  }
+
+  ipcMain.handle('repos:list', async () => {
+    await migrateExistingRepoManagedFolders(store)
     enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     // Why: username resolution spawns git/gh, so keep it off this sync handler (issue #7225); it re-lists when values land.
     enrichRepoGitUsernames(store, { onChanged: broadcastReposChanged })

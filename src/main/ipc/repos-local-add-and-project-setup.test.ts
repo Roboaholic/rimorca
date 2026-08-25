@@ -28,10 +28,16 @@ vi.mock('../providers/ssh-filesystem-dispatch', () =>
 vi.mock('./ssh', () => moduleMocks.sshModuleMock(reposMocks))
 vi.mock('../ssh/ssh-target-registry', () => moduleMocks.sshModuleMock(reposMocks))
 
+vi.mock('../project-groups/nested-repo-discovery', async (importOriginal) => {
+  const actual = await importOriginal<typeof NestedRepoDiscovery>()
+  return { ...actual, scanNestedRepos: vi.fn(actual.scanNestedRepos) }
+})
+import type * as NestedRepoDiscovery from '../project-groups/nested-repo-discovery'
 import { registerRepoHandlers } from './repos'
 import { clearGitCapabilityStateForTests } from '../git/git-capability-state'
 import { resetSshProviderAuthorities } from '../ssh/ssh-provider-authority'
 import { getGitRepoRoot } from '../git/repo'
+import { scanNestedRepos } from '../project-groups/nested-repo-discovery'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../shared/constants'
 import { createRepoHandlerHarness, resetLocalRepoMocks } from './repos-remote-test-harness'
 
@@ -65,6 +71,35 @@ describe('repos:add + repos:clone', () => {
       expect.objectContaining({ path: '/tmp/from-add', badgeColor: DEFAULT_REPO_BADGE_COLOR })
     )
     expect(result).toHaveProperty('repo.badgeColor', DEFAULT_REPO_BADGE_COLOR)
+  })
+
+  it('rechecks existing WSL folder repos for repo-managed markers during repos:list', async () => {
+    const existing = {
+      id: 'wsl-folder',
+      path: '\\\\wsl.localhost\\Ubuntu-24.04\\home\\miles\\pyoneer05',
+      displayName: 'pyoneer05',
+      badgeColor: DEFAULT_REPO_BADGE_COLOR,
+      addedAt: 0,
+      kind: 'folder' as const
+    }
+    mockStore.getRepos.mockReturnValue([existing])
+    mockStore.getProjectGroups.mockReturnValue([])
+    vi.mocked(scanNestedRepos).mockResolvedValue({
+      selectedPath: existing.path,
+      selectedPathKind: 'repo_managed',
+      repos: [],
+      truncated: false,
+      timedOut: false,
+      stopped: false,
+      durationMs: 1,
+      maxDepth: 3,
+      maxRepos: 100,
+      timeoutMs: 5_000
+    })
+    await handlers.get('repos:list')!(null, undefined)
+    expect(mockStore.createProjectGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ createdFrom: 'repo-managed', parentPath: existing.path })
+    )
   })
 
   it('inherits global non-Orca visibility while retaining the mixed-version safety marker', async () => {
