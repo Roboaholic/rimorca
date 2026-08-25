@@ -42,18 +42,17 @@ export type ProcessSpec = {
   maxOutputBytes?: number
   /** Kills the process when aborted; the result still reports the exit. */
   signal?: AbortSignal
-  // keep both
   /** Kill the whole process tree and do not settle until termination is verified. */
   terminationBarrier?: boolean | ProcessTerminationBarrier
+  /** Observe output incrementally while it is still captured for the final result. */
+  onStdout?: (chunk: string) => void
+  onStderr?: (chunk: string) => void
 }
 
 export type ProcessTerminationBarrier = {
   observeStderr?: (chunk: Buffer | string) => void
   signal: (child: ChildProcess, signal?: NodeJS.Signals) => Promise<boolean>
   force: (child: ChildProcess) => Promise<boolean>
-  /** Observe output incrementally while it is still captured for the final result. */
-  onStdout?: (chunk: string) => void
-  onStderr?: (chunk: string) => void
 }
 
 export type ProcessResult = {
