@@ -30,3 +30,7 @@ export function useConfirmationDialog(): ConfirmationDialogContextValue {
   }
   return confirm
 }
+
+export function useOptionalConfirmationDialog(): ConfirmationDialogContextValue | null {
+  return useContext(ConfirmationDialogContext)
+}

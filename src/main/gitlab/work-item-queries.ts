@@ -79,17 +79,21 @@ export async function listWorkItems(
   preference?: IssueSourcePreference,
   query?: string,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  projectRefOverride?: ProjectRef | null
 ): Promise<GitLabPagedResult<GitLabWorkItem>> {
   const issueState = mrStateToIssueState(state)
-  const knownHosts = await getGlabKnownHosts(connectionId, localGitOptions)
-  const { source: projectRef } = await resolveIssueSource(
-    repoPath,
-    preference,
-    knownHosts,
-    connectionId,
-    localGitOptions
-  )
+  const projectRef =
+    projectRefOverride ??
+    (
+      await resolveIssueSource(
+        repoPath,
+        preference,
+        await getGlabKnownHosts(connectionId, localGitOptions),
+        connectionId,
+        localGitOptions
+      )
+    ).source
   if (!projectRef) {
     return {
       items: [],
@@ -114,7 +118,8 @@ export async function listWorkItems(
       preference,
       query,
       connectionId,
-      localGitOptions
+      localGitOptions,
+      ...(projectRefOverride !== undefined ? [projectRef] : [])
     ),
     issueState === null
       ? Promise.resolve({
@@ -129,7 +134,8 @@ export async function listWorkItems(
           perPage,
           query,
           connectionId,
-          localGitOptions
+          localGitOptions,
+          projectRefOverride !== undefined
         )
   ])
   const merged = [...mrs.items, ...issues.items].sort((a, b) =>
@@ -156,7 +162,8 @@ export async function fetchIssuesAsWorkItems(
   perPage: number,
   query?: string,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  forceProjectHost = false
 ): Promise<{ items: GitLabWorkItem[]; error: ClassifiedError | undefined }> {
   await acquire()
   try {
@@ -165,7 +172,7 @@ export async function fetchIssuesAsWorkItems(
     const { stdout } = await glabExecFileAsync(
       [
         'api',
-        ...glabHostnameArgs(projectRef, connectionId),
+        ...glabHostnameArgs(projectRef, connectionId, forceProjectHost),
         `projects/${encodedProject(projectRef.path)}/issues?page=${page}&per_page=${perPage}&order_by=updated_at&sort=desc${stateParam}${searchParam}`
       ],
       glabRepoExecOptions(repoPath, connectionId, localGitOptions)

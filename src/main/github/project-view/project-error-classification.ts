@@ -96,6 +96,16 @@ export function classifyProjectError(
   // error always contains "to a", so we tighten the not_found check below to
   // require that token.
   if (
+    s.includes('spawn gh enoent') ||
+    s.includes('gh: command not found') ||
+    s.includes("'gh' is not recognized")
+  ) {
+    return {
+      type: 'auth_required',
+      message: 'GitHub CLI (gh) is not installed on this execution host.'
+    }
+  }
+  if (
     s.includes('timeout') ||
     s.includes('no such host') ||
     s.includes('network') ||

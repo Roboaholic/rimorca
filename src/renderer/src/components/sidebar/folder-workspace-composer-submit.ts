@@ -61,6 +61,11 @@ type SubmitFolderWorkspaceCreateParams = {
   launchSource?: LaunchSource
   runtimeEnvironmentId?: string | null
   createFolderWorkspace: (input: FolderWorkspaceCreateInput) => Promise<FolderWorkspace | null>
+  deriveRepoManagedFolderWorkspace?: (
+    input: FolderWorkspaceCreateInput
+  ) => Promise<FolderWorkspace | null>
+  existingWorkspace?: FolderWorkspace | null
+  deriveRepoManaged?: boolean
   onOpenChange: (open: boolean) => void
 }
 
@@ -81,6 +86,9 @@ export async function submitFolderWorkspaceCreate({
   launchSource = 'sidebar',
   runtimeEnvironmentId = null,
   createFolderWorkspace,
+  deriveRepoManagedFolderWorkspace,
+  existingWorkspace,
+  deriveRepoManaged = false,
   onOpenChange
 }: SubmitFolderWorkspaceCreateParams): Promise<boolean> {
   const linkedName = linkedWorkItem ? getLinkedItemDisplayName(linkedWorkItem) : null
@@ -154,7 +162,7 @@ export async function submitFolderWorkspaceCreate({
     Boolean(quickAgent) &&
     note.trim().length > 0
 
-  const workspace = await createFolderWorkspace({
+  const createInput: FolderWorkspaceCreateInput = {
     projectGroupId: projectGroup.id,
     name: workspaceName,
     // Why: SSH folder groups must keep their target provenance even when the
@@ -164,7 +172,12 @@ export async function submitFolderWorkspaceCreate({
     ...(linkedTaskSourceContext ? { linkedTaskSourceContext } : {}),
     ...(quickAgent ? { createdWithAgent: quickAgent } : {}),
     ...(pendingFirstAgentMessageRename ? { pendingFirstAgentMessageRename: true } : {})
-  })
+  }
+  const workspace =
+    existingWorkspace ??
+    (deriveRepoManaged
+      ? await deriveRepoManagedFolderWorkspace?.(createInput)
+      : await createFolderWorkspace(createInput))
   if (!workspace) {
     return false
   }

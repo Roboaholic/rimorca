@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, ChevronDown, Pencil, Trash2 } from 'lucide-react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { OpenInApplication } from '../../../../shared/ui-chrome-types'
@@ -243,13 +243,10 @@ export function OpenInMenuSetting({
   )
   const [editingIds, setEditingIds] = useState<ReadonlySet<string>>(new Set())
 
-  const resolvedDraftState = resolveOpenInApplicationsDraftState(draftState, applications)
-  if (resolvedDraftState !== draftState) {
-    // Why: the Open menu rows are editable local drafts, but Settings can
-    // reload from persistence while this pane is mounted.
-    setDraftState(resolvedDraftState)
-  }
-  const draft = resolvedDraftState.draft
+  useEffect(() => {
+    setDraftState((current) => resolveOpenInApplicationsDraftState(current, applications))
+  }, [applications])
+  const draft = draftState.draft
   const isAtLimit = draft.length >= OPEN_IN_APPLICATIONS_MAX
 
   const commit = (nextDraft: OpenInApplication[]): void => {

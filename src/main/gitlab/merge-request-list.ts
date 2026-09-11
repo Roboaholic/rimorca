@@ -13,7 +13,8 @@ import {
   parseGlabPaginationHeader,
   release,
   resolveIssueSource,
-  type LocalGitExecOptions
+  type LocalGitExecOptions,
+  type ProjectRef
 } from './gl-utils'
 import { encodedProject } from './project-path-encoding'
 
@@ -39,17 +40,14 @@ export async function listMergeRequests(
   preference?: IssueSourcePreference,
   query?: string,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  projectRefOverride?: ProjectRef | null
 ): Promise<ListMergeRequestsResult> {
   const knownHosts = await getGlabKnownHosts(connectionId, localGitOptions)
-  // Why: MRs live on the user's fork (origin); route through the preference resolver so fork workflows share plumbing.
-  const { source: projectRef } = await resolveIssueSource(
-    repoPath,
-    preference,
-    knownHosts,
-    connectionId,
-    localGitOptions
-  )
+  const projectRef =
+    projectRefOverride ??
+    (await resolveIssueSource(repoPath, preference, knownHosts, connectionId, localGitOptions))
+      .source
   if (!projectRef) {
     if (connectionId) {
       // Why: SSH-backed repos have no local cwd; a cwd-less glab could resolve an unrelated project.
@@ -123,7 +121,7 @@ export async function listMergeRequests(
   await acquire()
   try {
     const { body, headers } = await glabApiWithHeaders(
-      [...glabHostnameArgs(projectRef, connectionId), path],
+      [...glabHostnameArgs(projectRef, connectionId, projectRefOverride !== undefined), path],
       glabRepoExecOptions(repoPath, connectionId, localGitOptions)
     )
     const data = parseGlabJsonList<Parameters<typeof mapMRToWorkItem>[0]>(body)

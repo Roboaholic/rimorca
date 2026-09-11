@@ -39,6 +39,7 @@ export const glApi = {
 
   listWorkItems: (
     args: GitLabRepoSelectorArgs & {
+      projectRef?: { host: string; path: string } | null
       state?: 'opened' | 'merged' | 'closed' | 'all'
       page?: number
       perPage?: number
@@ -51,6 +52,7 @@ export const glApi = {
 
   listIssues: (
     args: GitLabRepoSelectorArgs & {
+      projectRef?: { host: string; path: string } | null
       state?: 'opened' | 'closed' | 'all'
       assignee?: string
       limit?: number
