@@ -175,7 +175,7 @@ export const nestedRepoCountBucketSchema = z.enum(NESTED_REPO_COUNT_BUCKETS)
 export const nestedRepoScanResultSchema = z.enum(NESTED_REPO_SCAN_RESULTS)
 export const nestedRepoImportActionSchema = z.enum(NESTED_REPO_IMPORT_ACTIONS)
 export const nestedRepoImportOutcomeSchema = z.enum(NESTED_REPO_IMPORT_OUTCOMES)
-export const nestedRepoScanPathKindSchema = z.enum(['git_repo', 'non_git_folder'])
+export const nestedRepoScanPathKindSchema = z.enum(['git_repo', 'non_git_folder', 'repo_managed'])
 export const nestedRepoImportModeSchema = z.enum(['group', 'separate'])
 export const nestedRepoAttemptIdSchema = z.string().uuid()
 

@@ -40,6 +40,10 @@ export type ProcessSpec = {
   maxOutputBytes?: number
   /** Kills the process when aborted; the result still reports the exit. */
   signal?: AbortSignal
+  /** Observes stdout chunks while preserving bounded capture. */
+  onStdout?: (chunk: string) => void
+  /** Observes stderr chunks while preserving bounded capture. */
+  onStderr?: (chunk: string) => void
   /** Keep the child in its own POSIX process group for tree termination. */
   detached?: boolean
   /** Preserve a caller-owned Windows command line such as a cmd.exe invocation. */

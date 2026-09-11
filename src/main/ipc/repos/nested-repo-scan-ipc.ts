@@ -7,6 +7,10 @@ import { awaitWindowsHostGitEnvironmentReady } from '../../git/runner'
 import { scanNestedRepos } from '../../project-groups/nested-repo-discovery'
 import { getSshGitProvider } from '../../providers/ssh-git-dispatch'
 import { getSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
+import { buildWslExecArgs } from '../../../shared/wsl-login-shell-command'
+import { parseWslPath } from '../../wsl'
+import { runProcess } from '../../../shared/child-process/run-process'
+import { REPO_MANAGED_MARKERS, REPO_METADATA_DIR } from '../../../shared/repo-managed-project'
 import { getActiveMultiplexer } from '../ssh'
 import type { ProjectGroupScanNestedArgs } from './repo-ipc-arg-schemas'
 
@@ -89,6 +93,23 @@ async function resolveSshProjectGroupPath(connectionId: string, path: string): P
   return path
 }
 
+export async function pathLooksLikeRepoManagedRootInWsl(path: string): Promise<boolean> {
+  const wsl = parseWslPath(path)
+  if (!wsl) return false
+  const result = await runProcess({
+    program: 'wsl.exe',
+    args: buildWslExecArgs(wsl.distro, [
+      '/bin/sh',
+      '-c',
+      'test -d "$1/.repo" && { test -e "$1/.repo/manifest.xml" || test -e "$1/.repo/project.list"; }',
+      'sh',
+      wsl.linuxPath
+    ]),
+    timeoutMs: 5_000
+  })
+  return result.code === 0
+}
+
 export async function scanNestedReposForIpc(args: {
   path: string
   connectionId?: string
@@ -96,6 +117,20 @@ export async function scanNestedReposForIpc(args: {
   signal?: AbortSignal
   onProgress?: (scan: NestedRepoScanResult) => void
 }): Promise<NestedRepoScanResult> {
+  if (!args.connectionId && (await pathLooksLikeRepoManagedRootInWsl(args.path))) {
+    return {
+      selectedPath: args.path,
+      selectedPathKind: 'repo_managed',
+      repos: [],
+      truncated: false,
+      timedOut: false,
+      stopped: false,
+      durationMs: 0,
+      maxDepth: 0,
+      maxRepos: 0,
+      timeoutMs: null
+    }
+  }
   validateNestedRepoScanRoot(args.path, args.connectionId)
   if (!args.connectionId) {
     await awaitWindowsHostGitEnvironmentReady({
@@ -130,6 +165,21 @@ export async function scanNestedReposForIpc(args: {
       readTextFile: async (filePath) => (await fsProvider.readFile(filePath)).content,
       joinPath: (parentPath, childName) => posix.join(parentPath, childName),
       basename: (path) => posix.basename(path),
+      hasRepoMarker: async (path) => {
+        try {
+          const repoDir = await fsProvider.stat(posix.join(path, REPO_METADATA_DIR))
+          if (repoDir.type !== 'directory') return false
+        } catch {
+          return false
+        }
+        for (const markerName of REPO_MANAGED_MARKERS) {
+          try {
+            if (await fsProvider.stat(posix.join(path, REPO_METADATA_DIR, markerName))) return true
+          } catch {}
+        }
+        return false
+      },
+
       hasGitMarker: async (path) => {
         try {
           const marker = await fsProvider.stat(posix.join(path, '.git'))

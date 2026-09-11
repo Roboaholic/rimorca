@@ -106,9 +106,13 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
       act()
     }
 
-    child.stdout?.on('data', (chunk: Buffer | string) => stdout.write(chunk))
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout.write(chunk)
+      spec.onStdout?.(chunk.toString())
+    })
     child.stderr?.on('data', (chunk: Buffer | string) => {
       stderr.write(chunk)
+      spec.onStderr?.(chunk.toString())
       if (typeof spec.terminationBarrier === 'object') {
         spec.terminationBarrier.observeStderr?.(chunk)
       }

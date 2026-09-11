@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
+import { z } from 'zod'
 import type { Store } from '../../persistence'
 import type { FolderWorkspace } from '../../../shared/folder-workspace-types'
 import type { FolderWorkspacePathStatusRequest } from '../../../shared/folder-workspace-path-status'
@@ -8,6 +9,10 @@ import {
   getFolderWorkspacePathStatus,
   getFolderWorkspacePathStatusForPath
 } from '../../project-groups/folder-workspace-path-status'
+import { deriveRepoManagedFolderWorkspace } from '../../project-groups/repo-managed-derive'
+import { installRepoCli, probeRepoCli } from '../../project-groups/repo-managed-cli'
+import { repoManagedDeriveProgress } from '../../../shared/repo-managed-derive-progress'
+import type { RepoCliProbe } from '../../../shared/repo-managed-cli'
 import { getSshFilesystemProvider } from '../../providers/ssh-filesystem-dispatch'
 import type { OrcaRuntimeService } from '../../runtime/orca-runtime'
 import { notifyReposChanged } from './repos-changed-notification'
@@ -71,6 +76,51 @@ export function registerFolderWorkspaceHandlers(
       return workspace
     }
   )
+
+  ipcMain.handle(
+    'folderWorkspaces:deriveRepoManaged',
+    async (event, rawArgs: unknown): Promise<FolderWorkspace> => {
+      const args = parseProjectGroupIpcArgs(
+        FolderWorkspaceCreateArgs,
+        rawArgs,
+        'invalid_folder_workspace_derive_args'
+      )
+      const workspace = await deriveRepoManagedFolderWorkspace({
+        store,
+        projectGroupId: args.projectGroupId,
+        name: args.name,
+        connectionId: args.connectionId,
+        linkedTask: args.linkedTask,
+        linkedTaskSourceContext: args.linkedTaskSourceContext,
+        createdWithAgent: args.createdWithAgent,
+        pendingFirstAgentMessageRename: args.pendingFirstAgentMessageRename,
+        onPhase: (phase) =>
+          event.sender.send('folderWorkspaces:deriveProgress', repoManagedDeriveProgress(phase)),
+        onSeedProgress: (progress) =>
+          event.sender.send(
+            'folderWorkspaces:deriveProgress',
+            repoManagedDeriveProgress('worktrees', progress)
+          ),
+        onSyncProgress: () => {}
+      })
+      notifyReposChanged(mainWindow)
+      return workspace
+    }
+  )
+
+  ipcMain.handle(
+    'folderWorkspaces:probeRepoCli',
+    async (_event, rawArgs: unknown): Promise<RepoCliProbe> => {
+      const args = parseProjectGroupIpcArgs(
+        z.object({ mainPath: z.string().optional() }),
+        rawArgs ?? {},
+        'invalid_repo_cli_probe_args'
+      )
+      return probeRepoCli({ mainPath: args.mainPath })
+    }
+  )
+
+  ipcMain.handle('folderWorkspaces:installRepoCli', async () => installRepoCli())
 
   ipcMain.handle(
     'folderWorkspaces:update',

@@ -14,6 +14,7 @@ import { registerRepoCloneHandlers } from './repos/repo-clone-lifecycle'
 import { registerRepoGitUsernameHandler } from './repos/repo-git-username-handler'
 import { registerBaseRefQueryHandlers } from './repos/base-ref-query-handlers'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
+export { pathLooksLikeRepoManagedRootInWsl } from './repos/nested-repo-scan-ipc'
 
 export function registerRepoHandlers(
   mainWindow: BrowserWindow,
@@ -46,6 +47,9 @@ export function registerRepoHandlers(
   ipcMain.removeHandler('projectGroups:importNested')
   ipcMain.removeHandler('folderWorkspaces:list')
   ipcMain.removeHandler('folderWorkspaces:create')
+  ipcMain.removeHandler('folderWorkspaces:deriveRepoManaged')
+  ipcMain.removeHandler('folderWorkspaces:probeRepoCli')
+  ipcMain.removeHandler('folderWorkspaces:installRepoCli')
   ipcMain.removeHandler('folderWorkspaces:update')
   ipcMain.removeHandler('folderWorkspaces:delete')
   ipcMain.removeHandler('folderWorkspaces:getPathStatus')
