@@ -66,6 +66,7 @@ type GitLabDialogRepoSelector = {
   repoPath: string
   repoId?: string | null
   sourceContext?: TaskSourceContext | null
+  projectRef?: GitLabWorkItem['projectRef']
 }
 
 type JobTraceState = {
@@ -383,9 +384,10 @@ export default function GitLabItemDialog({
     return {
       repoPath,
       ...(repoId ? { repoId } : {}),
-      ...(sourceContext ? { sourceContext } : {})
+      ...(sourceContext ? { sourceContext } : {}),
+      ...(item?.projectRef ? { projectRef: item.projectRef } : {})
     }
-  }, [repoId, repoPath, sourceContext])
+  }, [item?.projectRef, repoId, repoPath, sourceContext])
   const updateCommentDraft = useCallback(
     (value: string): void => {
       setCommentDraftState({ itemId, value })

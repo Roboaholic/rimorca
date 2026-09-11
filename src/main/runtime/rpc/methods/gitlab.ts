@@ -30,13 +30,15 @@ const WorkItemsList = RepoSelector.extend({
   state: z.enum(['opened', 'merged', 'closed', 'all']).optional(),
   page: OptionalFiniteNumber,
   perPage: OptionalFiniteNumber,
-  query: OptionalString
+  query: OptionalString,
+  projectRef: GitLabProjectRef
 })
 
 const IssuesList = RepoSelector.extend({
   state: z.unknown().optional(),
   assignee: OptionalString,
-  limit: OptionalFiniteNumber
+  limit: OptionalFiniteNumber,
+  projectRef: GitLabProjectRef
 })
 
 const CreateIssue = RepoSelector.extend({
@@ -170,7 +172,8 @@ export const GITLAB_METHODS: RpcMethod[] = [
         params.state,
         params.page,
         params.perPage,
-        params.query
+        params.query,
+        ...(params.projectRef ? [params.projectRef] : [])
       )
   }),
   defineMethod({
@@ -182,7 +185,8 @@ export const GITLAB_METHODS: RpcMethod[] = [
         params.repo,
         normalized.state,
         normalized.assignee,
-        normalized.limit
+        normalized.limit,
+        ...(params.projectRef ? [params.projectRef] : [])
       )
     }
   }),

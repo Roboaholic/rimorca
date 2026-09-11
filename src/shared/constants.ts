@@ -378,6 +378,12 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
       lastViewByProject: {},
       activeProject: null
     },
+    // Why: explicit GitLab projects are account-backed task sources and do not require a local checkout.
+    gitlabProjects: {
+      pinned: [],
+      recent: [],
+      configured: []
+    },
     // Why: keep agent/model maps empty so first use follows the default agent's model, not a frozen stale choice.
     commitMessageAi: {
       enabled: true,

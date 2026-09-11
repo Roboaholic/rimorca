@@ -163,11 +163,39 @@ describe('gitlab client — combined listWorkItems', () => {
 
   it('returns a not_found error envelope when project ref is unresolved', async () => {
     resolveIssueSourceMock.mockResolvedValueOnce({ source: null, fellBack: false })
-
     const result = await listWorkItems('/repo', 'opened')
     expect(result.error?.type).toBe('not_found')
     expect(result.items).toEqual([])
     expect(glabExecFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('targets an explicit ported project from the local Host', async () => {
+    glabApiWithHeadersMock.mockResolvedValueOnce({ body: '[]', headers: {} })
+    glabExecFileAsyncMock.mockResolvedValueOnce({ stdout: '[]' })
+
+    await listWorkItems(
+      '/repo',
+      'opened',
+      1,
+      20,
+      undefined,
+      undefined,
+      null,
+      {},
+      { host: '192.168.110.77:8929', path: 'dev/bsp_dev/amba_hal' }
+    )
+
+    expect(glabApiWithHeadersMock.mock.calls[0][0]).toEqual([
+      '--hostname',
+      '192.168.110.77',
+      expect.stringContaining('projects/dev%2Fbsp_dev%2Famba_hal/merge_requests')
+    ])
+    expect(glabExecFileAsyncMock.mock.calls[0][0]).toEqual([
+      'api',
+      '--hostname',
+      '192.168.110.77',
+      expect.stringContaining('projects/dev%2Fbsp_dev%2Famba_hal/issues')
+    ])
   })
 
   it('surfaces the MR error envelope into the combined result', async () => {

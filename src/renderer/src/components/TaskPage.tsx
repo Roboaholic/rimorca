@@ -310,6 +310,7 @@ import {
 import { useTaskCreationDraftRetention } from '@/components/use-task-creation-draft-retention'
 import { findTaskPageJiraIssue } from '@/components/task-page-jira-cache-selectors'
 import { getRepoBackedTaskEmptyState } from '@/components/task-page-empty-state'
+import { resolveGitLabExecutionRepo } from '@/components/task-page-gitlab-execution-repo'
 import {
   getDefaultTaskRepoSelection,
   getTaskEligibleRepos,
@@ -2989,6 +2990,8 @@ export default function TaskPage(): React.JSX.Element {
   const allWorktrees = useAllWorktrees()
   const openModal = useAppStore((s) => s.openModal)
   const updateSettings = useAppStore((s) => s.updateSettings)
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const fetchWorkItemsAcrossRepos = useAppStore((s) => s.fetchWorkItemsAcrossRepos)
   const fetchPRChecks = useAppStore((s) => s.fetchPRChecks)
   const getCachedWorkItems = useAppStore((s) => s.getCachedWorkItems)
@@ -3045,7 +3048,13 @@ export default function TaskPage(): React.JSX.Element {
   const linearConnected = linearStatusCurrent && linearStatus.connected
   const jiraConnected = jiraStatusCurrent && jiraStatus.connected
   const submitShortcutLabel = getScreenSubmitShortcutLabel()
-  const eligibleRepos = useMemo(() => getTaskEligibleRepos(repos), [repos])
+  const eligibleRepos = useMemo(
+    () =>
+      getTaskEligibleRepos(repos, {
+        allowRegisteredProjects: (settings?.gitlabProjects?.configured?.length ?? 0) > 0
+      }),
+    [repos, settings?.gitlabProjects?.configured?.length]
+  )
 
   // Why: initial selection precedence — explicit preselection > persisted defaultRepoSelection > all eligible; preselection wins so "open tasks for this repo" lands single-repo.
   const resolvedInitialSelection = useMemo<ReadonlySet<string>>(() => {
@@ -3106,6 +3115,12 @@ export default function TaskPage(): React.JSX.Element {
   const selectedRepos = useMemo(
     () => eligibleRepos.filter((r) => repoSelection.has(r.id)),
     [eligibleRepos, repoSelection]
+  )
+  const configuredGitLabProjects = settings?.gitlabProjects?.configured ?? []
+  const [gitlabExecutionRepoId, setGitlabExecutionRepoId] = useState<string | null>(null)
+  const gitlabExecutionRepo = useMemo(
+    () => resolveGitLabExecutionRepo(eligibleRepos, gitlabExecutionRepoId, selectedRepos),
+    [eligibleRepos, gitlabExecutionRepoId, selectedRepos]
   )
 
   // Why: see buildSelectedReposKey — array-identity deps re-fire on every
@@ -3222,15 +3237,17 @@ export default function TaskPage(): React.JSX.Element {
     },
     []
   )
-  const taskSourceRepoContexts = useMemo(
-    () =>
-      taskSource === 'github' || taskSource === 'gitlab'
-        ? selectedRepos
-            .map((repo) => getTaskPageRepoSourceContext(repo, taskSource))
-            .filter((context): context is TaskSourceContext => context !== null)
-        : [],
-    [selectedRepos, taskSource]
-  )
+  const taskSourceRepoContexts = useMemo(() => {
+    if (taskSource === 'gitlab') {
+      const context = getTaskPageRepoSourceContext(gitlabExecutionRepo, 'gitlab')
+      return context ? [context] : []
+    }
+    return taskSource === 'github'
+      ? selectedRepos
+          .map((repo) => getTaskPageRepoSourceContext(repo, 'github'))
+          .filter((context): context is TaskSourceContext => context !== null)
+      : []
+  }, [gitlabExecutionRepo, selectedRepos, taskSource])
   const hostRegistryById = useMemo(
     () =>
       new Map(
@@ -3341,11 +3358,11 @@ export default function TaskPage(): React.JSX.Element {
     if (taskSource !== 'github' && taskSource !== 'gitlab') {
       return []
     }
-    return [
+    const availability = [
       ...taskSourceRepoContexts.flatMap((context) => {
         const host = hostRegistryById.get(context.hostId)
-        const availability = getTaskSourceHostAvailabilityForHost(host, context.hostId)
-        return availability ? [availability] : []
+        const hostAvailability = getTaskSourceHostAvailabilityForHost(host, context.hostId)
+        return hostAvailability ? [hostAvailability] : []
       }),
       ...getRepoBackedProviderAvailability({
         provider: taskSource,
@@ -3355,7 +3372,12 @@ export default function TaskPage(): React.JSX.Element {
         runtimePreflightStatusByHostId
       })
     ]
+    // Explicit projects authenticate against their own URL host; default glab auth status may only describe gitlab.com.
+    return taskSource === 'gitlab' && configuredGitLabProjects.length > 0
+      ? availability.filter((entry) => entry.reason !== 'missing-provider-auth')
+      : availability
   }, [
+    configuredGitLabProjects.length,
     hostRegistryById,
     preflightStatus,
     preflightStatusChecked,
@@ -3629,6 +3651,16 @@ export default function TaskPage(): React.JSX.Element {
   const [gitlabLoading, setGitlabLoading] = useState(false)
   const [gitlabError, setGitlabError] = useState<string | null>(null)
   const [gitlabRefreshNonce, setGitlabRefreshNonce] = useState(0)
+  const [gitlabProjectScope, setGitlabProjectScope] = useState('all')
+  const selectedConfiguredGitLabProjects = useMemo(
+    () =>
+      gitlabProjectScope === 'all'
+        ? configuredGitLabProjects
+        : configuredGitLabProjects.filter(
+            (project) => `${project.host}/${project.path}` === gitlabProjectScope
+          ),
+    [configuredGitLabProjects, gitlabProjectScope]
+  )
   // Why: separate from gitlabItems so the dialog target survives a list refresh that removes the item from the visible filter (e.g. closing an MR).
   const [gitlabDialogItem, setGitlabDialogItem] = useState<GitLabWorkItem | null>(null)
 
@@ -3657,6 +3689,10 @@ export default function TaskPage(): React.JSX.Element {
   if (!gitlabFilterIsValid) {
     setGitlabFilter('opened')
   }
+  const openGitLabProjectSettings = useCallback(() => {
+    openSettingsTarget({ pane: 'general', repoId: null, sectionId: 'gitlab-projects' })
+    openSettingsPage()
+  }, [openSettingsPage, openSettingsTarget])
 
   const displayedGitLabItems = useMemo(() => {
     if (gitlabView === 'issues') {
@@ -4905,27 +4941,29 @@ export default function TaskPage(): React.JSX.Element {
     jiraTaskSourceContext
   ])
 
-  // Why: fetch GitLab Issues and MRs separately so errors stay isolated per tab (mirrors GitHub's split endpoints).
+  // Why: configured projects share a selected repo's execution host and glab auth, while local selections retain per-repo execution routing.
   useEffect(() => {
-    if (taskSource !== 'gitlab') {
+    if (taskSource !== 'gitlab' || gitlabView === 'todos') {
       return
     }
-    if (gitlabView === 'todos') {
+    if (!preflightStatusCurrent || !preflightStatusChecked) {
+      setGitlabLoading(false)
       return
     }
     const activeIssueFilter =
       gitlabView === 'issues' && isGitLabIssueFilter(activeGitlabFilter) ? activeGitlabFilter : null
     const activeMRFilter =
       gitlabView === 'mrs' && isGitLabMRFilter(activeGitlabFilter) ? activeGitlabFilter : null
-    if (
-      (gitlabView === 'issues' && !activeIssueFilter) ||
-      (gitlabView === 'mrs' && !activeMRFilter)
-    ) {
-      return
-    }
-    // Why: folder-mode repos lack remotes to derive a GitLab project from; SSH-backed repos use the same provider-aware IPC path.
-    const eligibleRepos = selectedRepos
-    if (eligibleRepos.length === 0) {
+    const anchorRepo = gitlabExecutionRepo
+    const allTargets = anchorRepo
+      ? selectedConfiguredGitLabProjects.map((projectRef) => ({ repo: anchorRepo, projectRef }))
+      : []
+    const unavailableHostIds = new Set(taskSourceHostAvailability.map(({ hostId }) => hostId))
+    const targets = allTargets.filter(({ repo, projectRef }) => {
+      const context = getTaskPageRepoSourceContext(repo, 'gitlab', projectRef)
+      return context ? !unavailableHostIds.has(context.hostId) : false
+    })
+    if (targets.length === 0) {
       setGitlabItems([])
       setGitlabLoading(false)
       setGitlabError(null)
@@ -4935,72 +4973,69 @@ export default function TaskPage(): React.JSX.Element {
     setGitlabLoading(true)
     setGitlabError(null)
 
-    const fetchItems =
-      gitlabView === 'issues'
-        ? (repo: (typeof eligibleRepos)[0]) => {
-            const isAssignedToMe = activeIssueFilter === 'assigned-to-me'
-            return window.api.gl
-              .listIssues({
-                repoPath: repo.path,
-                repoId: repo.id,
-                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
-                state: 'opened',
-                assignee: isAssignedToMe ? '@me' : undefined,
-                limit: 50
-              })
-              .then((result) => {
-                const typed = result as {
-                  items: GitLabWorkItem[]
-                  error?: { type?: string; message: string }
-                }
-                // Why: not_found just means the repo isn't a GitLab project (mixed selection); drop it so the list shows no false errors.
-                const error = typed.error?.type === 'not_found' ? undefined : typed.error
-                return { repoId: repo.id, items: typed.items, error }
-              })
-          }
-        : (repo: (typeof eligibleRepos)[0]) =>
-            window.api.gl
-              .listMRs({
-                repoPath: repo.path,
-                repoId: repo.id,
-                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
-                state: activeMRFilter ?? 'opened',
-                page: 1,
-                perPage: 50
-              })
-              .then((result) => {
-                const typed = result as {
-                  items: GitLabWorkItem[]
-                  error?: { type?: string; message: string }
-                }
-                const error = typed.error?.type === 'not_found' ? undefined : typed.error
-                return { repoId: repo.id, items: typed.items, error }
-              })
+    const fetchItems = async (target: (typeof targets)[0]) => {
+      const { repo, projectRef } = target
+      const result =
+        gitlabView === 'issues'
+          ? await window.api.gl.listIssues({
+              repoPath: repo.path,
+              repoId: repo.id,
+              sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab', projectRef),
+              projectRef,
+              state: 'opened',
+              assignee: activeIssueFilter === 'assigned-to-me' ? '@me' : undefined,
+              limit: 50
+            })
+          : await window.api.gl.listWorkItems({
+              repoPath: repo.path,
+              repoId: repo.id,
+              sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab', projectRef),
+              projectRef,
+              state: activeMRFilter ?? 'opened',
+              page: 1,
+              perPage: 50
+            })
+      const typed = result as {
+        items: GitLabWorkItem[]
+        error?: { type?: string; message: string }
+      }
+      return {
+        repoId: repo.id,
+        projectRef,
+        items: typed.items,
+        error: typed.error?.type === 'not_found' ? undefined : typed.error
+      }
+    }
 
-    void Promise.allSettled(eligibleRepos.map(fetchItems))
+    void Promise.allSettled(targets.map(fetchItems))
       .then((results) => {
         if (stale) {
           return
         }
         const merged: GitLabWorkItem[] = []
-        const errs: string[] = []
-        for (const r of results) {
-          if (r.status !== 'fulfilled') {
-            errs.push(r.reason instanceof Error ? r.reason.message : String(r.reason))
+        const errors: string[] = []
+        for (const result of results) {
+          if (result.status !== 'fulfilled') {
+            errors.push(
+              result.reason instanceof Error ? result.reason.message : String(result.reason)
+            )
             continue
           }
-          for (const item of r.value.items) {
-            merged.push({ ...item, repoId: r.value.repoId })
+          for (const item of result.value.items) {
+            merged.push({
+              ...item,
+              repoId: result.value.repoId,
+              ...(result.value.projectRef ? { projectRef: result.value.projectRef } : {})
+            })
           }
-          if (r.value.error) {
-            errs.push(r.value.error.message)
+          if (result.value.error) {
+            errors.push(result.value.error.message)
           }
         }
         merged.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
         setGitlabItems(merged)
-        // Why: only banner when every eligible repo failed; a partial one would hide working rows in a mixed (non-GitLab) selection.
-        if (errs.length > 0 && merged.length === 0) {
-          setGitlabError(errs[0])
+        if (errors.length > 0 && merged.length === 0) {
+          setGitlabError(errors[0])
         }
       })
       .finally(() => {
@@ -5011,15 +5046,32 @@ export default function TaskPage(): React.JSX.Element {
     return () => {
       stale = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedReposKey covers every selectedRepos field read above (see its GitHub-scoped-context note); keying off the array ref would re-run on every parent render.
-  }, [taskSource, gitlabView, activeGitlabFilter, gitlabRefreshNonce, selectedReposKey])
-
-  // Why: Todos fetch has its own effect — different trigger (no chip filter) and data path (gl.todos is user-scoped, not repo-scoped).
+  }, [
+    taskSource,
+    gitlabView,
+    activeGitlabFilter,
+    gitlabRefreshNonce,
+    gitlabExecutionRepo,
+    gitlabProjectScope,
+    configuredGitLabProjects,
+    taskSourceHostAvailability,
+    preflightStatusCurrent,
+    preflightStatusChecked
+  ])
   useEffect(() => {
     if (taskSource !== 'gitlab' || gitlabView !== 'todos') {
       return
     }
-    if (!primaryRepo?.path) {
+    if (
+      !preflightStatusCurrent ||
+      !preflightStatusChecked ||
+      taskSourceHostAvailability.length > 0
+    ) {
+      setGitlabTodos([])
+      setGitlabTodosLoading(false)
+      return
+    }
+    if (!gitlabExecutionRepo?.path) {
       setGitlabTodos([])
       setGitlabTodosLoading(false)
       return
@@ -5028,9 +5080,9 @@ export default function TaskPage(): React.JSX.Element {
     setGitlabTodosLoading(true)
     void window.api.gl
       .todos({
-        repoPath: primaryRepo.path,
-        repoId: primaryRepo.id,
-        sourceContext: getTaskPageRepoSourceContext(primaryRepo, 'gitlab')
+        repoPath: gitlabExecutionRepo.path,
+        repoId: gitlabExecutionRepo.id,
+        sourceContext: getTaskPageRepoSourceContext(gitlabExecutionRepo, 'gitlab')
       })
       .then((todos) => {
         if (!stale) {
@@ -5050,7 +5102,15 @@ export default function TaskPage(): React.JSX.Element {
     return () => {
       stale = true
     }
-  }, [taskSource, gitlabView, gitlabRefreshNonce, primaryRepo])
+  }, [
+    taskSource,
+    gitlabView,
+    gitlabRefreshNonce,
+    gitlabExecutionRepo,
+    preflightStatusCurrent,
+    preflightStatusChecked,
+    taskSourceHostAvailability
+  ])
 
   const defaultLinearTeamSelection = settings?.defaultLinearTeamSelection
   const [linearTeamSelection, setLinearTeamSelection] = useState<ReadonlySet<string>>(() => {
@@ -9857,40 +9917,79 @@ export default function TaskPage(): React.JSX.Element {
                           )
                         })}
                       </div>
-                      <div className="min-w-0 w-full sm:w-[200px]">
-                        <TaskProjectSourceCombobox
-                          groups={taskPickerGroups}
-                          selected={repoSelection}
-                          getRepoHostLabel={getTaskPickerRepoHostLabel}
-                          onChange={(next) => {
-                            const normalized = normalizeTaskRepoSelection(eligibleRepos, next)
-                            setRepoSelection(normalized)
-                            void updateSettings({ defaultRepoSelection: [...normalized] }).catch(
-                              () => {
-                                toast.error(
-                                  translate(
-                                    'auto.components.TaskPage.dfd72673e7',
-                                    'Failed to save project selection.'
-                                  )
-                                )
-                              }
-                            )
-                          }}
-                          onSelectAll={() => {
-                            const allIds = new Set(taskPickerRepos.map((r) => r.id))
-                            setRepoSelection(allIds)
-                            void updateSettings({ defaultRepoSelection: null }).catch(() => {
-                              toast.error(
-                                translate(
-                                  'auto.components.TaskPage.dfd72673e7',
-                                  'Failed to save project selection.'
-                                )
-                              )
-                            })
-                          }}
-                          triggerClassName="h-8 w-full rounded-md border border-border/50 bg-muted/50 px-2 text-xs font-medium shadow-sm transition hover:bg-muted/50 focus:ring-2 focus:ring-ring/20 focus:outline-none"
-                        />
-                      </div>
+                      {configuredGitLabProjects.length > 0 && gitlabView !== 'todos' ? (
+                        <Select value={gitlabProjectScope} onValueChange={setGitlabProjectScope}>
+                          <SelectTrigger className="h-8 w-[220px] rounded-md border-border/50 bg-muted/50 text-xs font-medium shadow-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">
+                              {translate(
+                                'auto.components.TaskPage.gitlabAllProjects',
+                                'All configured GitLab projects'
+                              )}
+                            </SelectItem>
+                            {configuredGitLabProjects.map((project) => (
+                              <SelectItem
+                                key={`${project.host}/${project.path}`}
+                                value={`${project.host}/${project.path}`}
+                              >
+                                {project.path}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      {eligibleRepos.length > 0 ? (
+                        <Select
+                          value={gitlabExecutionRepo?.id ?? undefined}
+                          onValueChange={setGitlabExecutionRepoId}
+                        >
+                          <SelectTrigger
+                            className="h-8 w-[240px] rounded-md border-border/50 bg-muted/50 text-xs font-medium shadow-sm"
+                            aria-label={translate(
+                              'auto.components.TaskPage.gitlabReadLocation',
+                              'GitLab read location'
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {eligibleRepos.map((repo) => (
+                              <SelectItem key={repo.id} value={repo.id}>
+                                {translate(
+                                  'auto.components.TaskPage.gitlabReadFromProject',
+                                  'Read via {{value0}}',
+                                  { value0: repo.displayName }
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon-sm"
+                            onClick={openGitLabProjectSettings}
+                            aria-label={translate(
+                              'auto.components.TaskPage.addGitLabProject',
+                              'Add GitLab project'
+                            )}
+                            className="h-8 w-8 border-border/50 bg-muted/50"
+                          >
+                            <Plus className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" sideOffset={6}>
+                          {translate(
+                            'auto.components.TaskPage.addGitLabProject',
+                            'Add GitLab project'
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                     <div
                       className="min-w-0 rounded-md rounded-b-none border border-border/50 bg-muted/50 px-3 pt-2 pb-0 shadow-sm"
@@ -10771,13 +10870,32 @@ export default function TaskPage(): React.JSX.Element {
                     ))}
                   </div>
                 ) : null}
-                {!gitlabLoading && displayedGitLabItems.length === 0 && !gitlabError ? (
+                {!gitlabLoading &&
+                displayedGitLabItems.length === 0 &&
+                !gitlabError &&
+                !taskSourceAvailabilityNotice ? (
                   <div className="px-4 py-12 text-center">
                     <p className="text-base font-medium text-foreground">
                       {gitlabEmptyState.title}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
                       {gitlabEmptyState.description}
+                    </p>
+                  </div>
+                ) : null}
+                {!gitlabLoading && taskSourceAvailabilityNotice ? (
+                  <div className="px-4 py-10 text-center">
+                    <p className="text-sm font-medium text-foreground">
+                      {translate(
+                        'auto.components.TaskPage.gitlabReadLocationUnavailable',
+                        'GitLab cannot be read from this location'
+                      )}
+                    </p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {translate(
+                        'auto.components.TaskPage.gitlabChooseReadyLocation',
+                        'Choose a read location where glab is installed and authenticated.'
+                      )}
                     </p>
                   </div>
                 ) : null}
@@ -10806,7 +10924,14 @@ export default function TaskPage(): React.JSX.Element {
                         {item.type === 'mr' ? '!' : '#'}
                         {item.number}
                       </span>
-                      <span className="min-w-0 truncate text-sm">{item.title}</span>
+                      <span className="min-w-0 truncate text-sm">
+                        {item.title}
+                        {item.projectRef && configuredGitLabProjects.length > 1 ? (
+                          <span className="ml-2 font-mono text-[11px] text-muted-foreground">
+                            {item.projectRef.path}
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {item.type === 'mr'
                           ? translate('auto.components.TaskPage.e224d76876', 'MR')

@@ -73,7 +73,10 @@ export function SidebarTaskNavButton(): React.JSX.Element | null {
   const activeView = useAppStore((s) => s.activeView)
   const repos = useAppStore((s) => s.repos)
   const repoMap = useRepoMap()
-  const canBrowseTasks = repos.some((repo) => isGitRepoKind(repo))
+  const hasConfiguredGitLabProject = useAppStore(
+    (s) => (s.settings?.gitlabProjects?.configured?.length ?? 0) > 0
+  )
+  const canBrowseTasks = repos.some((repo) => isGitRepoKind(repo)) || hasConfiguredGitLabProject
   const showTasksButton = useAppStore((s) => s.settings?.showTasksButton !== false)
   const rawVisibleTaskProviders = useAppStore((s) => s.settings?.visibleTaskProviders)
   const defaultTaskSource = useAppStore((s) => s.settings?.defaultTaskSource ?? 'github')

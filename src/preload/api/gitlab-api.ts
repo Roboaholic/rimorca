@@ -55,6 +55,7 @@ export type GitLabApi = {
    *  when state is 'merged' (issues don't merge). */
   listWorkItems: (
     args: GitLabRepoSelectorArgs & {
+      projectRef?: GitLabProjectRef | null
       state?: MRListState
       page?: number
       perPage?: number
@@ -64,6 +65,7 @@ export type GitLabApi = {
   issue: (args: GitLabRepoSelectorArgs & { number: number }) => Promise<GitLabIssueInfo | null>
   listIssues: (
     args: GitLabRepoSelectorArgs & {
+      projectRef?: GitLabProjectRef | null
       state?: 'opened' | 'closed' | 'all'
       assignee?: string
       limit?: number
@@ -96,6 +98,7 @@ export type GitLabApi = {
     args: GitLabRepoSelectorArgs & {
       iid: number
       type: 'issue' | 'mr'
+      projectRef?: GitLabProjectRef | null
     }
   ) => Promise<GitLabWorkItemDetails | null>
   closeMR: (

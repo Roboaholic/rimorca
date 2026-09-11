@@ -187,7 +187,7 @@ export type FolderWorkspacesApi = {
       >
     >
   }) => Promise<FolderWorkspace | null>
-  delete: (args: { folderWorkspaceId: string }) => Promise<boolean>
+  delete: (args: { folderWorkspaceId: string; deleteFiles?: boolean }) => Promise<boolean>
 }
 
 export type SparsePresetsApi = {

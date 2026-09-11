@@ -74,16 +74,20 @@ export async function listIssues(
   state: IssueListState = 'opened',
   assignee?: string,
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  projectRefOverride?: ProjectRef | null
 ): Promise<IssueListResult> {
-  const knownHosts = await getGlabKnownHosts(connectionId, localGitOptions)
-  const { source: projectRef } = await resolveIssueSource(
-    repoPath,
-    preference,
-    knownHosts,
-    connectionId,
-    localGitOptions
-  )
+  const projectRef =
+    projectRefOverride ??
+    (
+      await resolveIssueSource(
+        repoPath,
+        preference,
+        await getGlabKnownHosts(connectionId, localGitOptions),
+        connectionId,
+        localGitOptions
+      )
+    ).source
   // Why: when the project can't be resolved we must NOT fall back to an
   // unscoped `glab issue list` that infers the project from cwd. For a repo
   // on an SSH connection there is no local cwd matching the repo, so glab
@@ -107,7 +111,7 @@ export async function listIssues(
     const { stdout } = await glabExecFileAsync(
       [
         'api',
-        ...glabHostnameArgs(projectRef, connectionId),
+        ...glabHostnameArgs(projectRef, connectionId, projectRefOverride !== undefined),
         `projects/${encodedProject(projectRef.path)}/issues?per_page=${limit}&order_by=updated_at&sort=desc${stateParam}${scopeParam}`
       ],
       glabRepoExecOptions(repoPath, connectionId, localGitOptions)

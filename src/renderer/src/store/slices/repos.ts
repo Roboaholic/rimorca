@@ -1929,7 +1929,7 @@ export type RepoSlice = {
   ) => Promise<boolean>
   deleteFolderWorkspace: (
     folderWorkspaceId: string,
-    options?: { executionHostId?: ExecutionHostId }
+    options?: { executionHostId?: ExecutionHostId; deleteFiles?: boolean }
   ) => Promise<boolean>
   // options.hostId targets a specific host's row + RPC target when the id exists on multiple hosts; else the group's own host owns the call.
   updateProjectGroup: (
@@ -3070,12 +3070,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId: runtimeEnvironmentId })
       const deleted =
         target.kind === 'local'
-          ? await window.api.folderWorkspaces.delete({ folderWorkspaceId })
+          ? await window.api.folderWorkspaces.delete({
+              folderWorkspaceId,
+              deleteFiles: options?.deleteFiles
+            })
           : (
               await callRuntimeRpc<{ deleted: boolean }>(
                 target,
                 'folderWorkspace.delete',
-                { folderWorkspaceId },
+                { folderWorkspaceId, deleteFiles: options?.deleteFiles },
                 { timeoutMs: 15_000 }
               )
             ).deleted

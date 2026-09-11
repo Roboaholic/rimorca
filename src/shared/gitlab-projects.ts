@@ -23,3 +23,25 @@ export function computeNextGitLabRecents(
   const filtered = existing.filter((entry) => !(entry.host === host && entry.path === path))
   return [{ host, path, lastOpenedAt: now.toISOString() }, ...filtered].slice(0, max)
 }
+
+export function parseGitLabProjectAddress(value: string): { host: string; path: string } | null {
+  const input = value.trim()
+  if (!input) {
+    return null
+  }
+  try {
+    const url = new URL(input)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !url.host) {
+      return null
+    }
+    const path = url.pathname.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
+    return path && !path.includes('/-/') ? { host: url.host.toLowerCase(), path } : null
+  } catch {
+    const match = /^([^\s/]+(?:\:[0-9]+)?)\/(.+)$/.exec(input)
+    if (!match) {
+      return null
+    }
+    const path = match[2].replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
+    return path ? { host: match[1].toLowerCase(), path } : null
+  }
+}

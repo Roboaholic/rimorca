@@ -1,4 +1,4 @@
-export const REPO_MANAGED_DERIVE_PHASES = ['preparing', 'init', 'seed', 'sync', 'register'] as const
+export const REPO_MANAGED_DERIVE_PHASES = ['preparing', 'worktrees', 'linking', 'register'] as const
 
 export type RepoManagedDerivePhase = (typeof REPO_MANAGED_DERIVE_PHASES)[number]
 
@@ -23,7 +23,7 @@ export function repoManagedDeriveProgress(
   const step = index !== -1 ? index + 1 : 1
   const total = REPO_MANAGED_DERIVE_PHASES.length
   const progressFraction =
-    (phase === 'seed' || phase === 'sync') && details?.totalProjects
+    phase === 'worktrees' && details?.totalProjects
       ? Math.min(1, (details.processedProjects ?? 0) / details.totalProjects)
       : 1
   return {

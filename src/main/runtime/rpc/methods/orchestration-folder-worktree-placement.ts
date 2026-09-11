@@ -1,4 +1,5 @@
 import { isFolderRepo } from '../../../../shared/repo-kind'
+import { isRepoManagedProjectGroup } from '../../../../shared/repo-managed-project'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
 
@@ -7,7 +8,14 @@ export async function assertOrchestrationWorktreeCreationSupported(args: {
   repoSelector: string
   existingPlacement: string
 }): Promise<void> {
-  if (!isFolderRepo(await args.runtime.showRepo(args.repoSelector))) {
+  const repo = await args.runtime.showRepo(args.repoSelector)
+  if (!isFolderRepo(repo)) {
+    return
+  }
+  const group = repo.projectGroupId
+    ? args.runtime.listProjectGroups().find((candidate) => candidate.id === repo.projectGroupId)
+    : undefined
+  if (isRepoManagedProjectGroup(group)) {
     return
   }
   throw new OrchestrationError(

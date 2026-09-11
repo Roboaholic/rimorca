@@ -1334,45 +1334,30 @@ export default function NewWorkspaceComposerCard({
                     'auto.components.NewWorkspaceComposerCard.derivePhasePreparing',
                     'Preparing derive…'
                   )
-                : deriveProgress.phase === 'init'
-                  ? translate(
-                      'auto.components.NewWorkspaceComposerCard.derivePhaseInit',
-                      'Initializing repo checkout…'
-                    )
-                  : deriveProgress.phase === 'seed'
-                    ? deriveProgress.totalProjects
-                      ? translate(
-                          'auto.components.NewWorkspaceComposerCard.derivePhaseSeedProject',
-                          'Copying local git objects… {{value0}}/{{value1}} · {{value2}}',
-                          {
-                            value0: deriveProgress.processedProjects ?? 0,
-                            value1: deriveProgress.totalProjects,
-                            value2: deriveProgress.currentProject ?? ''
-                          }
-                        )
-                      : translate(
-                          'auto.components.NewWorkspaceComposerCard.derivePhaseSeed',
-                          'Copying local git objects…'
-                        )
-                    : deriveProgress.phase === 'sync'
-                      ? deriveProgress.totalProjects
-                        ? translate(
-                            'auto.components.NewWorkspaceComposerCard.derivePhaseSyncProject',
-                            'Checking out projects… {{value0}}/{{value1}} · {{value2}}',
-                            {
-                              value0: deriveProgress.processedProjects ?? 0,
-                              value1: deriveProgress.totalProjects,
-                              value2: deriveProgress.currentProject ?? ''
-                            }
-                          )
-                        : translate(
-                            'auto.components.NewWorkspaceComposerCard.derivePhaseSync',
-                            'Checking out projects…'
-                          )
-                      : translate(
-                          'auto.components.NewWorkspaceComposerCard.derivePhaseRegister',
-                          'Registering workspace…'
-                        )}
+                : deriveProgress.phase === 'worktrees'
+                  ? deriveProgress.totalProjects
+                    ? translate(
+                        'auto.components.NewWorkspaceComposerCard.derivePhaseWorktreeProject',
+                        'Creating project worktrees… {{value0}}/{{value1}} · {{value2}}',
+                        {
+                          value0: deriveProgress.processedProjects ?? 0,
+                          value1: deriveProgress.totalProjects,
+                          value2: deriveProgress.currentProject ?? ''
+                        }
+                      )
+                    : translate(
+                        'auto.components.NewWorkspaceComposerCard.derivePhaseWorktrees',
+                        'Creating project worktrees…'
+                      )
+                  : deriveProgress.phase === 'linking'
+                    ? translate(
+                        'auto.components.NewWorkspaceComposerCard.derivePhaseLinking',
+                        'Hardlinking workspace files…'
+                      )
+                    : translate(
+                        'auto.components.NewWorkspaceComposerCard.derivePhaseRegister',
+                        'Registering workspace…'
+                      )}
             </span>
             <span>
               {deriveProgress.step}/{deriveProgress.total}

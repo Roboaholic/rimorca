@@ -41,6 +41,7 @@ export function registerGitLabIssueHandlers(store: Store): void {
         repoPath: string
         repoId?: string | null
         sourceContext?: TaskSourceContext | null
+        projectRef?: { host: string; path: string } | null
         state?: 'opened' | 'closed' | 'all'
         assignee?: string
         limit?: number
@@ -57,13 +58,14 @@ export function registerGitLabIssueHandlers(store: Store): void {
         state,
         assignee,
         repoConnectionId(repo),
-        ...localGitOptionArgs(store, repo)
+        localGitOptionArgs(store, repo)[0],
+        args.projectRef
       )
       // Why: Tasks page expects GitLabWorkItem[] so it can share row
       // rendering with MRs. Map IssueInfo → WorkItem here so the renderer
       // doesn't need a separate code path.
       const workItems: GitLabWorkItem[] = result.items.map((issue) => ({
-        id: `gitlab-issue-${repo.id}-${issue.number}`,
+        id: `gitlab-issue-${args.projectRef?.path ?? repo.id}-${issue.number}`,
         type: 'issue' as const,
         number: issue.number,
         title: issue.title,
@@ -72,7 +74,8 @@ export function registerGitLabIssueHandlers(store: Store): void {
         labels: issue.labels,
         updatedAt: issue.updatedAt ?? '',
         author: issue.author ?? null,
-        repoId: repo.id
+        repoId: repo.id,
+        ...(args.projectRef ? { projectRef: args.projectRef } : {})
       }))
       return { items: workItems, ...(result.error ? { error: result.error } : {}) }
     }

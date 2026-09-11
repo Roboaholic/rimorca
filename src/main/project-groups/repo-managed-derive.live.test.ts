@@ -101,15 +101,12 @@ describe('materializeRepoManagedCheckout live repo', () => {
       }
     })
 
-    expect(phases).toEqual(['preparing', 'init', 'seed', 'sync'])
+    expect(phases).toEqual(['preparing', 'worktrees', 'linking'])
+    await expect(access(join(destPath, '.repo'))).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(access(join(destPath, 'bionic', 'README.md'))).resolves.toBeUndefined()
-    const { stdout } = await execFileAsync('git', [
-      '--git-dir',
-      join(destPath, '.repo', 'projects', 'bionic.git'),
-      'cat-file',
-      '-t',
-      'refs/remotes/origin/main'
-    ])
-    expect(stdout.trim()).toBe('commit')
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: join(destPath, 'bionic')
+    })
+    expect(stdout.trim()).toBe('task-a')
   }, 120_000)
 })

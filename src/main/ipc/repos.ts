@@ -975,7 +975,8 @@ const FolderWorkspaceUpdateArgs = z.object({
 })
 
 const FolderWorkspaceSelectorArgs = z.object({
-  folderWorkspaceId: z.string().min(1)
+  folderWorkspaceId: z.string().min(1),
+  deleteFiles: z.boolean().optional()
 })
 
 const FolderWorkspacePathStatusArgs = z.discriminatedUnion('scope', [
@@ -1678,14 +1679,11 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
         onSeedProgress: (progress) => {
           event.sender.send(
             'folderWorkspaces:deriveProgress',
-            repoManagedDeriveProgress('seed', progress)
+            repoManagedDeriveProgress('worktrees', progress)
           )
         },
-        onSyncProgress: (progress) => {
-          event.sender.send(
-            'folderWorkspaces:deriveProgress',
-            repoManagedDeriveProgress('sync', progress)
-          )
+        onSyncProgress: () => {
+          // Snapshot linking supersedes the legacy repo sync phase.
         }
       })
       notifyReposChanged(mainWindow)
@@ -1757,6 +1755,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     )
     const deleted = await deleteFolderWorkspaceWithDerivedRepo({
       folderWorkspaceId: args.folderWorkspaceId,
+      deleteFiles: args.deleteFiles,
       getFolderWorkspace: (id) => store.getFolderWorkspace(id),
       getProjectGroups: () => store.getProjectGroups(),
       removeFolderWorkspace: (id) => store.removeFolderWorkspace(id),

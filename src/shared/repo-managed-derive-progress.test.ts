@@ -6,35 +6,43 @@ import {
 
 describe('repoManagedDeriveProgress', () => {
   it('maps each derive phase to a determinate percent', () => {
-    expect(REPO_MANAGED_DERIVE_PHASES).toEqual(['preparing', 'init', 'seed', 'sync', 'register'])
+    expect(REPO_MANAGED_DERIVE_PHASES).toEqual([
+      'preparing',
+      'worktrees',
+      'linking',
+      'register'
+    ])
     expect(repoManagedDeriveProgress('preparing')).toEqual({
       phase: 'preparing',
       step: 1,
-      total: 5,
-      percent: 20
+      total: 4,
+      percent: 25
     })
-    expect(repoManagedDeriveProgress('init')).toEqual({
-      phase: 'init',
+    expect(
+      repoManagedDeriveProgress('worktrees', {
+        currentProject: 'app',
+        processedProjects: 1,
+        totalProjects: 2
+      })
+    ).toEqual({
+      phase: 'worktrees',
       step: 2,
-      total: 5,
-      percent: 40
+      total: 4,
+      percent: 38,
+      currentProject: 'app',
+      processedProjects: 1,
+      totalProjects: 2
     })
-    expect(repoManagedDeriveProgress('seed')).toEqual({
-      phase: 'seed',
+    expect(repoManagedDeriveProgress('linking')).toEqual({
+      phase: 'linking',
       step: 3,
-      total: 5,
-      percent: 60
-    })
-    expect(repoManagedDeriveProgress('sync')).toEqual({
-      phase: 'sync',
-      step: 4,
-      total: 5,
-      percent: 80
+      total: 4,
+      percent: 75
     })
     expect(repoManagedDeriveProgress('register')).toEqual({
       phase: 'register',
-      step: 5,
-      total: 5,
+      step: 4,
+      total: 4,
       percent: 100
     })
   })

@@ -1,7 +1,7 @@
-import { access, mkdir, realpath } from 'node:fs/promises'
+import { access, link, lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
+import { basename, dirname, join, relative, sep, win32 } from 'node:path'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../shared/project-group-types'
 import { isRepoManagedProjectGroup } from '../../shared/repo-managed-project'
@@ -11,20 +11,7 @@ import { toLinuxPath } from '../../shared/wsl-paths'
 import { buildWslExecArgs, quotePosixShell } from '../../shared/wsl-login-shell-command'
 import { gitExecFileAsync } from '../git/runner'
 import { computeWorktreePathAsync, sanitizeWorktreeName } from '../ipc/worktree-logic'
-import {
-  buildRepoInitArgs,
-  buildRepoSyncArgs,
-  readRepoManagedCheckoutIdentity,
-  normalizeRepoInitArgsForWsl,
-  type RepoManagedCheckoutIdentity
-} from './repo-managed-checkout'
-import { resolveRepoProgram } from './repo-managed-cli'
-import {
-  seedDerivedRepoProjectGitDirs,
-  syncRepoManagedMetadata,
-  type RepoManagedSeedProgress
-} from './repo-managed-seed'
-import { createRepoSyncProgressParser } from './repo-sync-progress'
+import type { RepoManagedSeedProgress } from './repo-managed-seed'
 import { removeDerivedRepoPath } from './repo-managed-cleanup'
 import type { RepoManagedDerivePhase } from '../../shared/repo-managed-derive-progress'
 export type { RepoManagedDerivePhase } from '../../shared/repo-managed-derive-progress'
@@ -69,10 +56,6 @@ async function pathExists(path: string): Promise<boolean> {
     return false
   }
 }
-function formatRepoCommandFailure(action: string, stderr: string, stdout: string): string {
-  const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n').slice(0, 4000)
-  return detail ? `repo ${action} failed:\n${detail}` : `repo ${action} failed`
-}
 export async function defaultRepoCommandRunner(args: {
   program: string
   args: readonly string[]
@@ -114,51 +97,231 @@ export async function defaultRepoCommandRunner(args: {
   })
   return { code: result.code, stdout: result.stdout, stderr: result.stderr }
 }
-async function readIdentityFromCheckout(mainPath: string): Promise<RepoManagedCheckoutIdentity> {
-  const git = {
-    configGet: async (gitDir: string, key: string): Promise<string | null> => {
-      try {
-        const { stdout } = await gitExecFileAsync(['--git-dir', gitDir, 'config', '--get', key], {
-          cwd: mainPath
-        })
-        return stdout
-      } catch {
-        return null
-      }
-    },
-    abbrevRef: async (gitDir: string): Promise<string | null> => {
-      try {
-        const { stdout } = await gitExecFileAsync(
-          ['--git-dir', gitDir, 'rev-parse', '--abbrev-ref', 'HEAD'],
-          { cwd: mainPath }
-        )
-        return stdout
-      } catch {
-        return null
+
+export const REPO_MANAGED_SNAPSHOT_METADATA = '.orca-repo-snapshot.json'
+
+export type RepoManagedSnapshotMetadata = {
+  version: 1
+  sourcePath: string
+  topic: string
+  createdAt: string
+  projectPaths: string[]
+}
+
+export type RepoManagedSnapshotResult = {
+  projectPaths: string[]
+  topic: string
+  metadataPath: string
+}
+
+const SNAPSHOT_EXCLUDED_DIRECTORIES: Record<string, true> = {
+  '.git': true,
+  '.repo': true,
+  node_modules: true,
+  out: true,
+  dist: true,
+  build: true,
+  '.next': true,
+  '.turbo': true,
+  target: true
+}
+
+export async function readRepoManagedProjectPaths(mainPath: string): Promise<string[]> {
+  const contents = await readFile(join(mainPath, '.repo', 'project.list'), 'utf8')
+  const seen = new Set<string>()
+  const projects: string[] = []
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const projectPath = rawLine.trim()
+    if (!projectPath || projectPath.startsWith('#')) {
+      continue
+    }
+    const normalized = projectPath.replaceAll('\\', '/')
+    if (
+      normalized.startsWith('/') ||
+      /^[A-Za-z]:\//.test(normalized) ||
+      normalized.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error(`Unsafe repo project path in .repo/project.list: ${projectPath}`)
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized)
+      projects.push(normalized)
+    }
+  }
+  if (projects.length === 0) {
+    throw new Error('The repo checkout has no projects in .repo/project.list.')
+  }
+  return projects
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error('Snapshot creation was aborted.')
+  }
+}
+
+async function hardlinkGoldenTree(args: {
+  sourcePath: string
+  destPath: string
+  sourceRoot: string
+  destRoot: string
+  signal?: AbortSignal
+}): Promise<void> {
+  throwIfAborted(args.signal)
+  await mkdir(args.destPath, { recursive: true })
+  for (const entry of await readdir(args.sourcePath, { withFileTypes: true })) {
+    throwIfAborted(args.signal)
+    if (SNAPSHOT_EXCLUDED_DIRECTORIES[entry.name]) {
+      continue
+    }
+    const source = join(args.sourcePath, entry.name)
+    const destination = join(args.destPath, entry.name)
+    const sourceRelative = relative(args.sourceRoot, source)
+    const destinationRelative = relative(args.sourceRoot, args.destRoot)
+    if (
+      destinationRelative &&
+      destinationRelative !== '..' &&
+      !destinationRelative.startsWith(`..${sep}`) &&
+      (sourceRelative === destinationRelative || sourceRelative.startsWith(`${destinationRelative}${sep}`))
+    ) {
+      continue
+    }
+    if (entry.isDirectory()) {
+      await hardlinkGoldenTree({ ...args, sourcePath: source, destPath: destination })
+      continue
+    }
+    if (!entry.isFile()) {
+      continue
+    }
+    await mkdir(dirname(destination), { recursive: true })
+    try {
+      await link(source, destination)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error
       }
     }
   }
-  return readRepoManagedCheckoutIdentity({
-    mainPath,
-    git,
-    paths: {
-      join,
-      basename,
-      realpath,
-      exists: pathExists
-    }
-  })
 }
 
-export async function materializeRepoManagedCheckout(args: {
+const WSL_WORKTREE_CREATE_SCRIPT = `set -euo pipefail
+golden=$1
+dest=$2
+topic=$3
+shift 3
+jobs=8
+state="$dest/.orca-worktree-create"
+mkdir -p "$state/ok"
+cleanup() {
+  for record in "$state/ok"/*; do
+    [ -f "$record" ] || continue
+    IFS=$'\\t' read -r project gitdir < "$record"
+    git --git-dir="$gitdir" worktree remove --force "$dest/$project" >/dev/null 2>&1 || true
+    git --git-dir="$gitdir" branch -D "$topic" >/dev/null 2>&1 || true
+  done
+  rm -rf "$dest"
+}
+trap cleanup ERR INT TERM
+export golden dest topic state
+printf '%s\\n' "$@" | xargs -P "$jobs" -I{} bash -c '
+  set -euo pipefail
+  project=$1
+  src="$golden/$project"
+  dst="$dest/$project"
+  key=$(printf %s "$project" | sha256sum | cut -d" " -f1)
+  gitdir=$(git -C "$src" rev-parse --path-format=absolute --git-common-dir)
+  mkdir -p "$(dirname "$dst")"
+  git --git-dir="$gitdir" worktree add --no-checkout --no-track -b "$topic" "$dst" HEAD
+  printf "%s\\t%s\\n" "$project" "$gitdir" > "$state/ok/$key"
+  printf "__ORCA_REPO_WORKTREE_DONE__%s\\n" "$project"
+' _ {}
+printf '__ORCA_REPO_LINKING__\\n'
+rsync -a --link-dest="$golden/" \
+  --exclude=.git --exclude=/.repo/ --exclude=/.repo-worktrees/ \
+  --exclude=/out/ --exclude=/dist/ --exclude=/build/ --exclude=/node_modules/ \
+  "$golden/" "$dest/"
+rm -rf "$state"
+trap - ERR INT TERM
+`
+
+export function createRepoSnapshotProgressParser(args: {
+  totalProjects: number
+  onPhase?: (phase: RepoManagedDerivePhase) => void
+  onProgress?: (progress: RepoManagedSeedProgress) => void
+}): (chunk: string) => void {
+  let buffered = ''
+  let processedProjects = 0
+  return (chunk) => {
+    buffered += chunk
+    const lines = buffered.split(/\r?\n/)
+    buffered = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line === '__ORCA_REPO_LINKING__') {
+        args.onPhase?.('linking')
+        continue
+      }
+      const marker = '__ORCA_REPO_WORKTREE_DONE__'
+      if (!line.startsWith(marker)) {
+        continue
+      }
+      processedProjects += 1
+      args.onProgress?.({
+        currentProject: line.slice(marker.length),
+        processedProjects,
+        totalProjects: args.totalProjects
+      })
+    }
+  }
+}
+
+async function createWslRepoManagedSnapshot(args: {
   mainPath: string
   destPath: string
+  topic: string
+  projectPaths: string[]
+  distro: string
   signal?: AbortSignal
   onPhase?: (phase: RepoManagedDerivePhase) => void
-  onSeedProgress?: (progress: RepoManagedSeedProgress) => void
-  onSyncProgress?: (progress: RepoManagedSeedProgress) => void
-  runCommand?: RepoManagedCommandRunner
+  onProgress?: (progress: RepoManagedSeedProgress) => void
 }): Promise<void> {
+  const main = parseWslPath(args.mainPath)!.linuxPath
+  const dest = parseWslPath(args.destPath)!.linuxPath
+  args.onPhase?.('worktrees')
+  const onStdout = createRepoSnapshotProgressParser({
+    totalProjects: args.projectPaths.length,
+    onPhase: args.onPhase,
+    onProgress: args.onProgress
+  })
+  const result = await runProcess({
+    program: 'wsl.exe',
+    args: buildWslExecArgs(args.distro, [
+      '/bin/bash',
+      '-s',
+      '--',
+      main,
+      dest,
+      args.topic,
+      ...args.projectPaths
+    ]),
+    input: WSL_WORKTREE_CREATE_SCRIPT,
+    timeoutMs: REPO_COMMAND_TIMEOUT_MS,
+    signal: args.signal,
+    onStdout
+  })
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || 'WSL snapshot creation failed.')
+  }
+  args.onPhase?.('linking')
+}
+
+export async function createRepoManagedSnapshot(args: {
+  mainPath: string
+  destPath: string
+  topic?: string
+  signal?: AbortSignal
+  onPhase?: (phase: RepoManagedDerivePhase) => void
+  onProgress?: (progress: RepoManagedSeedProgress) => void
+}): Promise<RepoManagedSnapshotResult> {
   args.onPhase?.('preparing')
   const wsl = parseWslPath(args.mainPath)
   if (wsl && parseWslPath(args.destPath)?.distro !== wsl.distro) {
@@ -167,72 +330,122 @@ export async function materializeRepoManagedCheckout(args: {
   if (await pathExists(args.destPath)) {
     throw new Error(`Derive destination already exists: ${args.destPath}`)
   }
-  const identity = await readIdentityFromCheckout(args.mainPath)
-  const runCommand = args.runCommand ?? defaultRepoCommandRunner
-  const program = await resolveRepoProgram({
-    mainPath: args.mainPath,
-    exists: pathExists,
-    runCommand: (cmd) =>
-      runCommand({
-        program: cmd.program,
-        args: cmd.args,
-        cwd: cmd.cwd ?? args.mainPath,
-        signal: args.signal
-      })
-  })
-  if (program === 'repo') {
-    const probe = await runCommand({
-      program,
-      args: ['--version'],
-      cwd: args.mainPath,
-      signal: args.signal
-    })
-    if (probe.code !== 0) {
-      throw new Error(REPO_TOOL_MISSING)
-    }
-  }
+  const projectPaths = await readRepoManagedProjectPaths(args.mainPath)
+  const topic = sanitizeWorktreeName(args.topic?.trim() || basename(args.destPath))
+  const attempted: string[] = []
+  let complete = false
   await mkdir(args.destPath, { recursive: true })
-  let materialized = false
-  try {
-    args.onPhase?.('init')
-    const initResult = await runCommand({
-      program,
-      args: normalizeRepoInitArgsForWsl(
-        buildRepoInitArgs({ identity, referencePath: args.mainPath }),
-        wsl ? { distro: wsl.distro, parsePath: parseWslPath } : null
-      ),
-      cwd: args.destPath,
-      signal: args.signal
-    })
-    if (initResult.code !== 0) {
-      throw new Error(formatRepoCommandFailure('init', initResult.stderr, initResult.stdout))
-    }
-    await syncRepoManagedMetadata({ mainPath: args.mainPath, destPath: args.destPath })
-    args.onPhase?.('seed')
-    await seedDerivedRepoProjectGitDirs({
+  if (wsl) {
+    const metadataPath = join(args.destPath, REPO_MANAGED_SNAPSHOT_METADATA)
+    await createWslRepoManagedSnapshot({
       mainPath: args.mainPath,
       destPath: args.destPath,
-      onProgress: args.onSeedProgress
-    })
-    args.onPhase?.('sync')
-    const parseSyncProgress = createRepoSyncProgressParser(args.onSyncProgress)
-    const syncResult = await runCommand({
-      program,
-      args: buildRepoSyncArgs(),
-      cwd: args.destPath,
+      topic,
+      projectPaths,
+      distro: wsl.distro,
       signal: args.signal,
-      onStdout: parseSyncProgress,
-      onStderr: parseSyncProgress
+      onPhase: args.onPhase,
+      onProgress: args.onProgress
     })
-    if (syncResult.code !== 0) {
-      throw new Error(formatRepoCommandFailure('sync', syncResult.stderr, syncResult.stdout))
+    const metadata: RepoManagedSnapshotMetadata = {
+      version: 1,
+      sourcePath: await realpath(args.mainPath),
+      topic,
+      createdAt: new Date().toISOString(),
+      projectPaths
     }
-    materialized = true
+    await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, { flag: 'wx' })
+    return { projectPaths, topic, metadataPath }
+  }
+  try {
+    args.onPhase?.('worktrees')
+    for (const [index, projectPath] of projectPaths.entries()) {
+      throwIfAborted(args.signal)
+      const sourceProject = join(args.mainPath, ...projectPath.split('/'))
+      const destProject = join(args.destPath, ...projectPath.split('/'))
+      const sourceStat = await lstat(sourceProject)
+      if (!sourceStat.isDirectory()) {
+        throw new Error(`Repo project is not a directory: ${projectPath}`)
+      }
+      await mkdir(dirname(destProject), { recursive: true })
+      attempted.push(projectPath)
+      await gitExecFileAsync(
+        ['worktree', 'add', '--no-checkout', '--no-track', '-b', topic, destProject, 'HEAD'],
+        { cwd: sourceProject, signal: args.signal }
+      )
+      args.onProgress?.({
+        processedProjects: index + 1,
+        totalProjects: projectPaths.length,
+        currentProject: projectPath
+      })
+    }
+    args.onPhase?.('linking')
+    await hardlinkGoldenTree({
+      sourcePath: args.mainPath,
+      destPath: args.destPath,
+      sourceRoot: args.mainPath,
+      destRoot: args.destPath,
+      signal: args.signal
+    })
+    const metadataPath = join(args.destPath, REPO_MANAGED_SNAPSHOT_METADATA)
+    const metadata: RepoManagedSnapshotMetadata = {
+      version: 1,
+      sourcePath: await realpath(args.mainPath),
+      topic,
+      createdAt: new Date().toISOString(),
+      projectPaths
+    }
+    await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, { flag: 'wx' })
+    complete = true
+    return { projectPaths, topic, metadataPath }
   } finally {
-    if (!materialized) {
+    if (!complete) {
+      for (const projectPath of attempted.reverse()) {
+        const sourceProject = join(args.mainPath, ...projectPath.split('/'))
+        const destProject = join(args.destPath, ...projectPath.split('/'))
+        await gitExecFileAsync(['worktree', 'remove', '--force', destProject], {
+          cwd: sourceProject
+        }).catch(() => {})
+        await gitExecFileAsync(['branch', '-D', topic], { cwd: sourceProject }).catch(() => {})
+      }
       await removeDerivedRepoPath(args.destPath).catch(() => {})
     }
   }
+}
+
+export async function materializeRepoManagedCheckout(args: {
+  mainPath: string
+  destPath: string
+  topic?: string
+  signal?: AbortSignal
+  onPhase?: (phase: RepoManagedDerivePhase) => void
+  onSeedProgress?: (progress: RepoManagedSeedProgress) => void
+  onSyncProgress?: (progress: RepoManagedSeedProgress) => void
+  runCommand?: RepoManagedCommandRunner
+}): Promise<void> {
+  await createRepoManagedSnapshot({
+    mainPath: args.mainPath,
+    destPath: args.destPath,
+    topic: args.topic,
+    signal: args.signal,
+    onPhase: args.onPhase,
+    onProgress: args.onSeedProgress
+  })
+}
+
+export async function resolveRepoManagedSnapshotPath(args: {
+  mainPath: string
+  workspaceName: string
+  settings: { nestWorkspaces: boolean; workspaceDir: string }
+}): Promise<string> {
+  const sanitizedName = sanitizeWorktreeName(args.workspaceName)
+  const sourceWsl = parseWslPath(args.mainPath)
+  return sourceWsl
+    ? win32.join(win32.dirname(args.mainPath), sanitizedName)
+    : computeWorktreePathAsync(sanitizedName, args.mainPath, {
+        nestWorkspaces: args.settings.nestWorkspaces,
+        workspaceDir: args.settings.workspaceDir || join(homedir(), 'orca', 'workspaces')
+      })
 }
 
 export async function deriveRepoManagedFolderWorkspace(args: {
@@ -258,11 +471,11 @@ export async function deriveRepoManagedFolderWorkspace(args: {
     throw new Error(REPO_MANAGED_DERIVE_SSH_UNSUPPORTED)
   }
   const workspaceName = args.name?.trim() || `${group.name} workspace`
-  const sanitizedName = sanitizeWorktreeName(workspaceName)
   const settings = args.store.getSettings()
-  const destPath = await computeWorktreePathAsync(sanitizedName, group.parentPath, {
-    nestWorkspaces: settings.nestWorkspaces,
-    workspaceDir: settings.workspaceDir || join(homedir(), 'orca', 'workspaces')
+  const destPath = await resolveRepoManagedSnapshotPath({
+    mainPath: group.parentPath,
+    workspaceName,
+    settings
   })
   await materializeRepoManagedCheckout({
     mainPath: group.parentPath,

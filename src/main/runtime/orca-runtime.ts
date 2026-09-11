@@ -1239,6 +1239,7 @@ import {
 import { createNestedRepoImportTargetResolver } from '../project-groups/nested-repo-import-target'
 import { importRepoManagedProject } from '../project-groups/repo-managed-import'
 import { deriveRepoManagedFolderWorkspace } from '../project-groups/repo-managed-derive'
+import { isRepoManagedProjectGroup } from '../../shared/repo-managed-project'
 
 function sanitizeNestedRepoRuntimeImportError(context: string, error: unknown): string {
   console.warn(`[project-groups] ${context}`, error)
@@ -21033,12 +21034,16 @@ export class OrcaRuntimeService {
     return updated
   }
 
-  async deleteFolderWorkspace(folderWorkspaceId: string): Promise<{ deleted: boolean }> {
+  async deleteFolderWorkspace(
+    folderWorkspaceId: string,
+    options: { deleteFiles?: boolean } = {}
+  ): Promise<{ deleted: boolean }> {
     if (!this.store?.removeFolderWorkspace || !this.store.getFolderWorkspaces) {
       throw new Error('runtime_unavailable')
     }
     const deleted = await deleteFolderWorkspaceWithDerivedRepo({
       folderWorkspaceId,
+      deleteFiles: options.deleteFiles,
       getFolderWorkspace: (id) =>
         this.store?.getFolderWorkspaces?.().find((workspace) => workspace.id === id),
       getProjectGroups: () => this.store?.getProjectGroups?.() ?? [],
@@ -22311,7 +22316,8 @@ export class OrcaRuntimeService {
     state?: MRListState,
     page?: number,
     perPage?: number,
-    query?: string
+    query?: string,
+    projectRef?: GitLabProjectRef | null
   ): Promise<Awaited<ReturnType<typeof listGitLabWorkItems>>> {
     const repo = await this.resolveRepoSelector(repoSelector)
     return listGitLabWorkItems(
@@ -22322,7 +22328,8 @@ export class OrcaRuntimeService {
       repo.issueSourcePreference,
       query,
       repo.connectionId ?? null,
-      ...this.getLocalGitExecutionOptionArgs(repo)
+      this.getLocalGitExecutionOptionArgs(repo)[0],
+      projectRef
     )
   }
 
@@ -22350,7 +22357,8 @@ export class OrcaRuntimeService {
     repoSelector: string,
     state?: GitLabIssueListState,
     assignee?: string,
-    limit?: number
+    limit?: number,
+    projectRef?: GitLabProjectRef | null
   ): Promise<{
     items: GitLabWorkItem[]
     error?: Awaited<ReturnType<typeof listGitLabIssues>>['error']
@@ -22364,12 +22372,11 @@ export class OrcaRuntimeService {
       normalized.state,
       normalized.assignee,
       repo.connectionId ?? null,
-      ...this.getLocalGitExecutionOptionArgs(repo)
+      this.getLocalGitExecutionOptionArgs(repo)[0],
+      projectRef
     )
-    // Why: web runtime mirrors the desktop preload contract, where GitLab
-    // issue rows share the GitLabWorkItem shape with MRs on TaskPage.
     const items: GitLabWorkItem[] = result.items.map((issue) => ({
-      id: `gitlab-issue-${repo.id}-${issue.number}`,
+      id: `gitlab-issue-${projectRef?.path ?? repo.id}-${issue.number}`,
       type: 'issue' as const,
       number: issue.number,
       title: issue.title,
@@ -22378,7 +22385,8 @@ export class OrcaRuntimeService {
       labels: issue.labels,
       updatedAt: issue.updatedAt ?? '',
       author: issue.author ?? null,
-      repoId: repo.id
+      repoId: repo.id,
+      ...(projectRef ? { projectRef } : {})
     }))
     return { items, ...(result.error ? { error: result.error } : {}) }
   }
@@ -24501,57 +24509,79 @@ export class OrcaRuntimeService {
         (requestedAgentEnabled ? requestedAgent : undefined))
     const effectiveDraftPaste = args.startupDraftPaste ?? draftStartup?.draftPaste
     if (isFolderRepo(repo)) {
+      const repoManagedGroup = repo.projectGroupId
+        ? this.store.getProjectGroups?.().find((group) => group.id === repo.projectGroupId)
+        : undefined
+      const derivedFolderWorkspace =
+        repoManagedGroup && isRepoManagedProjectGroup(repoManagedGroup)
+          ? await this.deriveRepoManagedFolderWorkspace({
+              projectGroupId: repoManagedGroup.id,
+              name: args.displayName?.trim() || args.name,
+              linkedTask: args.linkedWorkItem,
+              linkedTaskSourceContext: args.linkedTaskSourceContext,
+              createdWithAgent: effectiveCreatedWithAgent,
+              pendingFirstAgentMessageRename: args.pendingFirstAgentMessageRename
+            })
+          : null
       const now = Date.now()
       const settings = createSettings
       const instanceId = randomUUID()
-      const worktreeId = getRuntimeFolderWorkspaceInstanceId(repo, instanceId)
-      const meta = this.store.setWorktreeMeta(worktreeId, {
-        instanceId,
-        ...getProjectHostSetupWorktreeMeta(this.store.getProjectHostSetups?.() ?? [], repo),
-        displayName: args.displayName?.trim() || args.name,
-        lastActivityAt: now,
-        createdAt: now,
-        orcaCreatedAt: now,
-        orcaCreationSource: 'runtime',
-        orcaCreationWorkspaceLayout: {
-          path: settings.workspaceDir,
-          nestWorkspaces: settings.nestWorkspaces
-        },
-        ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
-        ...(args.cliProvenance ? { cliProvenance: args.cliProvenance } : {}),
-        creatorProvenance: args.creatorProvenance ?? { kind: 'host' },
-        ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
-        ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
-        ...(args.linkedLinearIssue !== undefined
-          ? { linkedLinearIssue: args.linkedLinearIssue }
-          : {}),
-        ...(args.linkedLinearIssueWorkspaceId !== undefined
-          ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
-          : {}),
-        ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
-          ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
-          : {}),
-        ...(args.linkedGitLabIssue !== undefined
-          ? { linkedGitLabIssue: args.linkedGitLabIssue }
-          : {}),
-        ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
-        ...(args.linkedBitbucketPR !== undefined
-          ? { linkedBitbucketPR: args.linkedBitbucketPR }
-          : {}),
-        ...(args.linkedAzureDevOpsPR !== undefined
-          ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
-          : {}),
-        ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
-        ...(args.linkedWorkItem !== undefined ? { linkedWorkItem: args.linkedWorkItem } : {}),
-        ...(args.linkedTaskSourceContext !== undefined
-          ? { linkedTaskSourceContext: args.linkedTaskSourceContext }
-          : {}),
-        ...(effectiveCreatedWithAgent ? { createdWithAgent: effectiveCreatedWithAgent } : {}),
-        ...(args.comment !== undefined ? { comment: args.comment } : {}),
-        ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
-        ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
-      })
-      const worktree = mergeRuntimeFolderWorkspace(repo, worktreeId, meta)
+      const worktreeId = derivedFolderWorkspace
+        ? folderWorkspaceKey(derivedFolderWorkspace.id)
+        : getRuntimeFolderWorkspaceInstanceId(repo, instanceId)
+      const meta = derivedFolderWorkspace
+        ? undefined
+        : this.store.setWorktreeMeta(worktreeId, {
+            instanceId,
+            ...getProjectHostSetupWorktreeMeta(this.store.getProjectHostSetups?.() ?? [], repo),
+            displayName: args.displayName?.trim() || args.name,
+            lastActivityAt: now,
+            createdAt: now,
+            orcaCreatedAt: now,
+            orcaCreationSource: 'runtime',
+            orcaCreationWorkspaceLayout: {
+              path: settings.workspaceDir,
+              nestWorkspaces: settings.nestWorkspaces
+            },
+            ...(args.automationProvenance
+              ? { automationProvenance: args.automationProvenance }
+              : {}),
+            ...(args.cliProvenance ? { cliProvenance: args.cliProvenance } : {}),
+            creatorProvenance: args.creatorProvenance ?? { kind: 'host' },
+            ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
+            ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
+            ...(args.linkedLinearIssue !== undefined
+              ? { linkedLinearIssue: args.linkedLinearIssue }
+              : {}),
+            ...(args.linkedLinearIssueWorkspaceId !== undefined
+              ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
+              : {}),
+            ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
+              ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
+              : {}),
+            ...(args.linkedGitLabIssue !== undefined
+              ? { linkedGitLabIssue: args.linkedGitLabIssue }
+              : {}),
+            ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
+            ...(args.linkedBitbucketPR !== undefined
+              ? { linkedBitbucketPR: args.linkedBitbucketPR }
+              : {}),
+            ...(args.linkedAzureDevOpsPR !== undefined
+              ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
+              : {}),
+            ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
+            ...(args.linkedWorkItem !== undefined ? { linkedWorkItem: args.linkedWorkItem } : {}),
+            ...(args.linkedTaskSourceContext !== undefined
+              ? { linkedTaskSourceContext: args.linkedTaskSourceContext }
+              : {}),
+            ...(effectiveCreatedWithAgent ? { createdWithAgent: effectiveCreatedWithAgent } : {}),
+            ...(args.comment !== undefined ? { comment: args.comment } : {}),
+            ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
+            ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
+          })
+      const worktree = derivedFolderWorkspace
+        ? folderWorkspaceToWorktree(derivedFolderWorkspace)
+        : mergeRuntimeFolderWorkspace(repo, worktreeId, meta!)
       this.invalidateResolvedWorktreeCache()
       this.notifyWorktreesChanged(repo.id)
       this.emitWorktreeLifecycle({

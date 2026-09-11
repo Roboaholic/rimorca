@@ -3563,14 +3563,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           folderWorkspaces,
           deriveRepoManaged
         })
-        if (createIntent.kind === 'activate-main' && agent) {
-          toast.info(
-            translate(
-              'auto.hooks.useComposerState.repoManagedMainAgentHint',
-              'This agent will work on the main tree. Derive a workspace to keep tasks isolated.'
-            )
-          )
-        }
         const folderWorkspaceCreated = await submitFolderWorkspaceCreate({
           projectGroup: selectedProjectGroup,
           name: smartGitHubMetadata?.workspaceName ?? name,
@@ -3606,7 +3598,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           isRemote: folderTargetIsRemote,
           launchSource: telemetrySource === 'onboarding' ? 'onboarding' : 'new_workspace_composer',
           runtimeEnvironmentId: folderTargetRuntimeEnvironmentId,
-          existingWorkspace: createIntent.kind === 'activate-main' ? createIntent.workspace : null,
+          existingWorkspace: null,
           deriveRepoManaged: createIntent.kind === 'derive',
           createFolderWorkspace: (input) =>
             createFolderWorkspace(input, {

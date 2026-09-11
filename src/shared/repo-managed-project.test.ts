@@ -72,7 +72,7 @@ describe('repo-managed project identity', () => {
         folderWorkspaces: [workspace()],
         deriveRepoManaged: false
       })
-    ).toMatchObject({ kind: 'activate-main', workspace: expect.objectContaining({ id: 'ws-1' }) })
+    ).toEqual({ kind: 'create-main' })
     expect(
       resolveFolderWorkspaceCreateIntent({
         group,

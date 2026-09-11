@@ -257,9 +257,14 @@ export function glabRepoExecOptions(
 
 export function glabHostnameArgs(
   projectRef: Pick<ProjectRef, 'host'> | null | undefined,
-  connectionId?: string | null
+  connectionId?: string | null,
+  force = false
 ): string[] {
-  return connectionId && projectRef?.host ? ['--hostname', projectRef.host] : []
+  if ((!connectionId && !force) || !projectRef?.host) {
+    return []
+  }
+  // glab auth profiles key by hostname; api_host inside that profile owns the non-default port.
+  return ['--hostname', projectRef.host.replace(/:\d+$/, '')]
 }
 
 async function isGlabConfiguredForRemoteHost(

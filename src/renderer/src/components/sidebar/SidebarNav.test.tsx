@@ -487,6 +487,22 @@ describe('SidebarNav', () => {
     expect(mocks.updateSettings).toHaveBeenCalledWith({ showTasksButton: false })
   })
 
+  it('enables Tasks for configured GitLab projects without a Git remote', async () => {
+    setSidebarState({
+      repos: [folderRepo()],
+      settings: {
+        ...getDefaultSettings('/tmp'),
+        gitlabProjects: {
+          pinned: [],
+          recent: [],
+          configured: [{ host: 'gitlab.example.com', path: 'group/project' }]
+        }
+      }
+    })
+    const container = await renderSidebarNav()
+    expect(getButtonByText(container, 'Tasks').getAttribute('aria-disabled')).toBe('false')
+  })
+
   it('keeps unavailable Tasks context-menu-capable while left click remains inert', async () => {
     setSidebarState({ repos: [folderRepo()] })
     const container = await renderSidebarNav()

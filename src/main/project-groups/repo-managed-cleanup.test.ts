@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import { isDerivedRepoManagedWorkspace } from '../../shared/repo-managed-project'
 import { deleteFolderWorkspaceWithDerivedRepo, removeDerivedRepoPath } from './repo-managed-cleanup'
+import { gitExecFileAsync } from '../git/runner'
+
+vi.mock('../git/runner', () => ({
+  gitExecFileAsync: vi.fn(async () => ({ stdout: '', stderr: '' }))
+}))
 
 const group = {
   id: 'group-1',
@@ -53,6 +58,7 @@ describe('repo-managed workspace cleanup', () => {
     await expect(
       deleteFolderWorkspaceWithDerivedRepo({
         folderWorkspaceId: workspace.id,
+        deleteFiles: true,
         getFolderWorkspace: () => workspace,
         getProjectGroups: () => [group],
         removeFolderWorkspace,
@@ -64,6 +70,22 @@ describe('repo-managed workspace cleanup', () => {
     expect(removeFolderWorkspace).toHaveBeenCalledWith(workspace.id)
   })
 
+  it('keeps derived files when deletion is not explicitly requested', async () => {
+    const removePath = vi.fn(async () => undefined)
+    const removeFolderWorkspace = vi.fn(() => true)
+
+    await deleteFolderWorkspaceWithDerivedRepo({
+      folderWorkspaceId: workspace.id,
+      getFolderWorkspace: () => workspace,
+      getProjectGroups: () => [group],
+      removeFolderWorkspace,
+      removePath
+    })
+
+    expect(removePath).not.toHaveBeenCalled()
+    expect(removeFolderWorkspace).toHaveBeenCalledWith(workspace.id)
+  })
+
   it('keeps ordinary folder workspace files untouched', async () => {
     const removePath = vi.fn(async () => undefined)
     const removeFolderWorkspace = vi.fn(() => true)
@@ -71,6 +93,7 @@ describe('repo-managed workspace cleanup', () => {
 
     await deleteFolderWorkspaceWithDerivedRepo({
       folderWorkspaceId: ordinary.id,
+      deleteFiles: true,
       getFolderWorkspace: () => ordinary,
       getProjectGroups: () => [{ ...group, createdFrom: 'folder-scan' }],
       removeFolderWorkspace,
@@ -88,6 +111,38 @@ describe('repo-managed workspace cleanup', () => {
       await mkdir(derived, { recursive: true })
       await writeFile(join(derived, 'marker.txt'), 'derived')
       await removeDerivedRepoPath(derived)
+      await expect(access(derived)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('unregisters snapshot worktrees and topic branches before deleting files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-derived-cleanup-'))
+    const source = join(root, 'golden')
+    const derived = join(root, 'derived')
+    try {
+      await mkdir(join(source, 'app'), { recursive: true })
+      await mkdir(join(derived, 'app'), { recursive: true })
+      await writeFile(
+        join(derived, '.orca-repo-snapshot.json'),
+        JSON.stringify({
+          version: 1,
+          sourcePath: source,
+          topic: 'task-a',
+          projectPaths: ['app']
+        })
+      )
+
+      await removeDerivedRepoPath(derived)
+
+      expect(vi.mocked(gitExecFileAsync)).toHaveBeenCalledWith(
+        ['worktree', 'remove', '--force', join(derived, 'app')],
+        { cwd: join(source, 'app') }
+      )
+      expect(vi.mocked(gitExecFileAsync)).toHaveBeenCalledWith(['branch', '-D', 'task-a'], {
+        cwd: join(source, 'app')
+      })
       await expect(access(derived)).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
       await rm(root, { recursive: true, force: true })

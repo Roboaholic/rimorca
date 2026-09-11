@@ -207,10 +207,11 @@ export type GitLabMRInlineCommentInput = {
   headSha: string
 }
 
-// Why: mirrors GitHubProjectSettings. `pinned` is reserved for a future UI affordance — defined now to keep settings migrations simple.
+// Why: explicit projects let the Tasks view read GitLab projects that are not the active checkout's remote.
 export type GitLabProjectSettings = {
   pinned: { host: string; path: string }[]
   recent: { host: string; path: string; lastOpenedAt: string }[]
+  configured: { host: string; path: string }[]
 }
 
 // Why: only the four Todo target types Orca renders meaningfully; others (e.g. DesignManagement::Design) fall back to a generic "open URL".

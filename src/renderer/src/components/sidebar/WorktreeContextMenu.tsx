@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useOptionalConfirmationDialog } from '@/components/confirmation-dialog-context'
 import {
   Copy,
   Bell,
@@ -326,6 +327,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   onOpenChange,
   onLifecycleComplete
 }: Props) {
+  const confirm = useOptionalConfirmationDialog()
   const defaultSelectedWorktrees = useMemo(() => [worktree], [worktree])
   const effectiveSelectedWorktrees = selectedWorktrees ?? defaultSelectedWorktrees
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
@@ -691,9 +693,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       isMultiContext,
       ...(folderWorkspaceId ? { folderWorkspaceId } : {})
     })
-    deferWorktreeContextMenuDeleteIntent(intent, restoreSidebarPosition)
+    deferWorktreeContextMenuDeleteIntent(intent, restoreSidebarPosition, undefined, confirm ?? undefined)
     setMenuOpenState(false)
-  }, [batchDeleteWorktrees, folderWorkspaceId, isMultiContext, setMenuOpenState, worktree])
+  }, [batchDeleteWorktrees, confirm, folderWorkspaceId, isMultiContext, setMenuOpenState, worktree])
 
   const handleOpenParent = useCallback(() => {
     if (validParentWorktreeId) {

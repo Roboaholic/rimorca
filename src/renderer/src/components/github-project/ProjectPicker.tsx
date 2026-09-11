@@ -388,7 +388,9 @@ export default function ProjectPicker({ activeProject, onSelect }: Props): React
     const input = pasteInput.trim()
     const parsed = parseProjectInput(input)
     if (!parsed) {
-      setPasteError('Expected a project URL or owner/number')
+      setPasteError(
+        'This picker accepts GitHub Projects. Add GitLab repository URLs under Settings → General → GitLab projects.'
+      )
       return
     }
     setPasteError(null)
@@ -629,7 +631,7 @@ export default function ProjectPicker({ activeProject, onSelect }: Props): React
                   }}
                   placeholder={translate(
                     'auto.components.github.project.ProjectPicker.5113ecc298',
-                    'Add by URL or owner/number'
+                    'Add GitHub Project by URL or owner/number'
                   )}
                   className="h-8 text-xs"
                 />

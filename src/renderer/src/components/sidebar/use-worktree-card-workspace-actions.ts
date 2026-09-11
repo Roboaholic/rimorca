@@ -1,9 +1,9 @@
 import React, { useCallback } from 'react'
 
-import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
+import { useOptionalConfirmationDialog } from '@/components/confirmation-dialog-context'
 import { translate } from '@/i18n/i18n'
-import { useAppStore } from '@/store'
 import { runWorktreeDelete } from './delete-worktree-flow'
+import { runFolderWorkspaceDelete } from './delete-folder-workspace-flow'
 import { isEventTargetInsideCurrentTarget } from './worktree-card-dom-events'
 import type { ResolvedWorktreeCardProps } from './worktree-card-model'
 import { writeWorkspaceDragData } from './workspace-status'
@@ -26,8 +26,6 @@ export function useWorktreeCardWorkspaceActions({
   onCardDragEnd,
   onContextMenuSelect,
   folderWorkspaceId,
-  deleteFolderWorkspace,
-  setActiveWorktree,
   setShowRenameErrorDialog,
   isDeleting,
   showDeleteQuickAction
@@ -48,20 +46,14 @@ export function useWorktreeCardWorkspaceActions({
   Pick<ReviewDetails, 'folderWorkspaceId'> & {
     showDeleteQuickAction: boolean
   }) {
+  const confirm = useOptionalConfirmationDialog()
   const handleWorkspaceQuickAction = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault()
       event.stopPropagation()
       if (showDeleteQuickAction) {
         if (folderWorkspaceId) {
-          void deleteFolderWorkspace(folderWorkspaceId).then((deleted) => {
-            if (
-              deleted &&
-              useAppStore.getState().activeWorktreeId === folderWorkspaceKey(folderWorkspaceId)
-            ) {
-              setActiveWorktree(null)
-            }
-          })
+          if (confirm) void runFolderWorkspaceDelete({ folderWorkspaceId, confirm })
           return
         }
         // Why the host (STA-4343): this row is one of possibly two for the same
@@ -70,9 +62,8 @@ export function useWorktreeCardWorkspaceActions({
       }
     },
     [
-      deleteFolderWorkspace,
+      confirm,
       folderWorkspaceId,
-      setActiveWorktree,
       showDeleteQuickAction,
       worktree.hostId,
       worktree.id

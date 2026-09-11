@@ -56,7 +56,8 @@ describe('gitlab RPC methods', () => {
         state: 'opened',
         page: 1,
         perPage: 25,
-        query: 'bug'
+        query: 'bug',
+        projectRef
       })
     )
     await dispatcher.dispatch(
@@ -64,7 +65,8 @@ describe('gitlab RPC methods', () => {
         repo: 'id:repo-1',
         state: 'opened',
         assignee: '@me',
-        limit: 50
+        limit: 50,
+        projectRef
       })
     )
     await dispatcher.dispatch(
@@ -200,9 +202,16 @@ describe('gitlab RPC methods', () => {
       'opened',
       1,
       25,
-      'bug'
+      'bug',
+      projectRef
     )
-    expect(runtime.listGitLabRepoIssues).toHaveBeenCalledWith('id:repo-1', 'opened', '@me', 50)
+    expect(runtime.listGitLabRepoIssues).toHaveBeenCalledWith(
+      'id:repo-1',
+      'opened',
+      '@me',
+      50,
+      projectRef
+    )
     expect(runtime.createGitLabRepoIssue).toHaveBeenCalledWith('id:repo-1', 'Fix bug', 'Details')
     expect(runtime.listGitLabRepoTodos).toHaveBeenCalledWith('id:repo-1')
     expect(runtime.listGitLabRepoLabels).toHaveBeenCalledWith('id:repo-1')

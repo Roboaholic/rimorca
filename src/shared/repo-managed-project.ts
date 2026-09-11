@@ -76,7 +76,6 @@ export function findMainFolderWorkspace(
 }
 
 export type FolderWorkspaceCreateIntent =
-  | { kind: 'activate-main'; workspace: FolderWorkspace }
   | { kind: 'create-main' }
   | { kind: 'derive' }
   | { kind: 'create-folder' }
@@ -92,6 +91,5 @@ export function resolveFolderWorkspaceCreateIntent(args: {
   if (args.deriveRepoManaged) {
     return { kind: 'derive' }
   }
-  const main = findMainFolderWorkspace(args.folderWorkspaces, args.group)
-  return main ? { kind: 'activate-main', workspace: main } : { kind: 'create-main' }
+  return { kind: 'create-main' }
 }

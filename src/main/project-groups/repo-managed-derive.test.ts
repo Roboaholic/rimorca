@@ -1,34 +1,39 @@
 import { mkdir, mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../shared/project-group-types'
+import { gitExecFileAsync } from '../git/runner'
 import {
   REPO_MANAGED_DERIVE_SSH_UNSUPPORTED,
   REPO_MANAGED_GROUP_REQUIRED,
   REPO_MANAGED_LOCAL_OBJECTS_MISSING,
+  REPO_MANAGED_SNAPSHOT_METADATA,
+  createRepoSnapshotProgressParser,
+  createRepoManagedSnapshot,
   deriveRepoManagedFolderWorkspace,
-  materializeRepoManagedCheckout,
+  resolveRepoManagedSnapshotPath,
+  readRepoManagedProjectPaths,
   seedDerivedRepoProjectGitDirs
 } from './repo-managed-derive'
 
+const defaultGitMock = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+  const keyIndex = args.lastIndexOf('--get')
+  const key = keyIndex !== -1 ? args[keyIndex + 1] : ''
+  if (key === 'remote.origin.url') {
+    return { stdout: 'https://example.com/manifest.git\n', stderr: '' }
+  }
+  if (args.includes('--abbrev-ref') || args.includes('for-each-ref')) {
+    return { stdout: 'main\n', stderr: '' }
+  }
+  return { stdout: '', stderr: '' }
+}
+
 vi.mock('../git/runner', () => ({
-  gitExecFileAsync: vi.fn(async (args: string[]) => {
-    const keyIndex = args.lastIndexOf('--get')
-    const key = keyIndex !== -1 ? args[keyIndex + 1] : ''
-    if (key === 'remote.origin.url') {
-      return { stdout: 'https://example.com/manifest.git\n', stderr: '' }
-    }
-    if (args.includes('--abbrev-ref')) {
-      return { stdout: 'main\n', stderr: '' }
-    }
-    if (args.includes('for-each-ref')) {
-      return { stdout: 'main\n', stderr: '' }
-    }
-    return { stdout: '', stderr: '' }
-  })
+  gitExecFileAsync: vi.fn()
 }))
+
 
 let tempDirs: string[] = []
 
@@ -38,8 +43,11 @@ async function tempRoot(): Promise<string> {
   return dir
 }
 
+beforeEach(() => {
+  vi.mocked(gitExecFileAsync).mockReset().mockImplementation(defaultGitMock)
+})
+
 afterEach(async () => {
-  vi.clearAllMocks()
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
   tempDirs = []
 })
@@ -52,6 +60,8 @@ async function writeMinimalRepoTree(mainPath: string): Promise<void> {
   await writeFile(join(mainPath, '.repo', 'manifests', 'default.xml'), '<manifest />\n')
   await writeFile(join(mainPath, '.repo', 'project.list'), 'app\n')
   await mkdir(join(mainPath, '.repo', 'projects', 'app.git'), { recursive: true })
+  await mkdir(join(mainPath, 'app', '.git'), { recursive: true })
+  await writeFile(join(mainPath, 'app', 'README.md'), 'golden\n')
 }
 
 function repoManagedGroup(parentPath: string, overrides: Partial<ProjectGroup> = {}): ProjectGroup {
@@ -91,88 +101,92 @@ function folderWorkspace(overrides: Partial<FolderWorkspace> = {}): FolderWorksp
   }
 }
 
-describe('materializeRepoManagedCheckout', () => {
-  it('runs repo init then sync and keeps the destination on success', async () => {
-    const root = await tempRoot()
-    const mainPath = join(root, 'main')
-    const destPath = join(root, 'task-a')
-    await writeMinimalRepoTree(mainPath)
-    const commands: string[][] = []
-    const phases: string[] = []
 
-    await materializeRepoManagedCheckout({
-      mainPath,
-      destPath,
-      onPhase: (phase) => {
-        phases.push(phase)
-      },
-      runCommand: async ({ args }) => {
-        commands.push([...args])
-        return { code: 0, stdout: '', stderr: '' }
-      }
+describe('createRepoManagedSnapshot', () => {
+  it('parses chunked WSL worktree and linking progress', () => {
+    const phases: string[] = []
+    const progress: Array<{ currentProject: string; processedProjects: number }> = []
+    const parse = createRepoSnapshotProgressParser({
+      totalProjects: 2,
+      onPhase: (phase) => phases.push(phase),
+      onProgress: (value) => progress.push(value)
     })
 
-    const repoCommands = commands.filter((args) => args[0] === 'init' || args[0] === 'sync')
-    expect(repoCommands[0]?.[0]).toBe('init')
-    expect(repoCommands[0]).toContain('--reference')
-    const manifestFlag = repoCommands[0]?.indexOf('-m') ?? -1
-    expect(repoCommands[0]?.[manifestFlag + 1]).toBe('default.xml')
-    expect(repoCommands[1]).toEqual([
-      'sync',
-      '--local-only',
-      '--no-manifest-update',
-      '--verbose',
-      '-j8'
+    parse('__ORCA_REPO_WORKTREE_DONE__app\n__ORCA_REPO_WORK')
+    parse('TREE_DONE__libs/core\n__ORCA_REPO_LINKING__\n')
+
+    expect(progress).toEqual([
+      { currentProject: 'app', processedProjects: 1, totalProjects: 2 },
+      { currentProject: 'libs/core', processedProjects: 2, totalProjects: 2 }
     ])
-    expect(phases).toEqual(['preparing', 'init', 'seed', 'sync'])
-    await expect(stat(destPath)).resolves.toBeTruthy()
-    await expect(readFile(join(destPath, '.repo', 'project.list'), 'utf8')).resolves.toBe('app\n')
-    await expect(
-      readFile(join(destPath, '.repo', 'manifests', 'default.xml'), 'utf8')
-    ).resolves.toBe('<manifest />\n')
+    expect(phases).toEqual(['linking'])
   })
 
-  it('deletes the destination when repo sync fails', async () => {
+  it('enumerates normalized unique project paths safely', async () => {
+    const root = await tempRoot()
+    await mkdir(join(root, '.repo'), { recursive: true })
+    await writeFile(join(root, '.repo', 'project.list'), 'app\n# comment\nlibs/core\napp\n')
+    await expect(readRepoManagedProjectPaths(root)).resolves.toEqual(['app', 'libs/core'])
+    await writeFile(join(root, '.repo', 'project.list'), '../escape\n')
+    await expect(readRepoManagedProjectPaths(root)).rejects.toThrow(/Unsafe repo project path/)
+  })
+
+  it('creates one worktree per project, hardlinks files, omits .repo, and writes metadata', async () => {
     const root = await tempRoot()
     const mainPath = join(root, 'main')
     const destPath = join(root, 'task-a')
     await writeMinimalRepoTree(mainPath)
+    const sourceFile = join(mainPath, 'app', 'README.md')
 
-    await expect(
-      materializeRepoManagedCheckout({
-        mainPath,
-        destPath,
-        runCommand: async ({ args }) => {
-          if (args[0] === 'sync') {
-            return { code: 1, stdout: '', stderr: 'network' }
-          }
-          return { code: 0, stdout: '', stderr: '' }
-        }
-      })
-    ).rejects.toThrow(/repo sync failed/)
+    const result = await createRepoManagedSnapshot({ mainPath, destPath, topic: 'feature/task-a' })
 
-    await expect(stat(destPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    const { gitExecFileAsync } = await import('../git/runner')
+    expect(vi.mocked(gitExecFileAsync)).toHaveBeenCalledWith(
+      [
+        'worktree',
+        'add',
+        '--no-checkout',
+        '--no-track',
+        '-b',
+        'feature-task-a',
+        join(destPath, 'app'),
+        'HEAD'
+      ],
+      { cwd: join(mainPath, 'app'), signal: undefined }
+    )
+    await expect(stat(join(destPath, '.repo'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await stat(sourceFile)).ino).toBe((await stat(join(destPath, 'app', 'README.md'))).ino)
+    expect(JSON.parse(await readFile(result.metadataPath, 'utf8'))).toMatchObject({
+      version: 1,
+      topic: 'feature-task-a',
+      projectPaths: ['app']
+    })
+    expect(result.metadataPath).toBe(join(destPath, REPO_MANAGED_SNAPSHOT_METADATA))
   })
 
-  it('deletes the destination when repo init fails', async () => {
+  it('removes registered partial worktrees and destination after failure', async () => {
     const root = await tempRoot()
     const mainPath = join(root, 'main')
     const destPath = join(root, 'task-a')
     await writeMinimalRepoTree(mainPath)
+    await mkdir(join(mainPath, 'second', '.git'), { recursive: true })
+    await writeFile(join(mainPath, 'second', 'README.md'), 'second\n')
+    await writeFile(join(mainPath, '.repo', 'project.list'), 'app\nsecond\n')
+    const { gitExecFileAsync } = await import('../git/runner')
+    vi.mocked(gitExecFileAsync).mockImplementation(async (command) => {
+      if (command[0] === 'worktree' && command.includes(join(destPath, 'second'))) {
+        throw new Error('worktree failed')
+      }
+      return { stdout: '', stderr: '' }
+    })
 
-    await expect(
-      materializeRepoManagedCheckout({
-        mainPath,
-        destPath,
-        runCommand: async ({ args }) => {
-          if (args[0] === 'init') {
-            return { code: 1, stdout: '', stderr: "fatal: manifest 'manifest.xml' not available" }
-          }
-          return { code: 0, stdout: '', stderr: '' }
-        }
-      })
-    ).rejects.toThrow(/repo init failed/)
-
+    await expect(createRepoManagedSnapshot({ mainPath, destPath, topic: 'task-a' })).rejects.toThrow(
+      'worktree failed'
+    )
+    expect(vi.mocked(gitExecFileAsync)).toHaveBeenCalledWith(
+      ['worktree', 'remove', '--force', join(destPath, 'app')],
+      { cwd: join(mainPath, 'app') }
+    )
     await expect(stat(destPath)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -182,14 +196,9 @@ describe('materializeRepoManagedCheckout', () => {
     const destPath = join(root, 'task-a')
     await writeMinimalRepoTree(mainPath)
     await mkdir(destPath, { recursive: true })
-
-    await expect(
-      materializeRepoManagedCheckout({
-        mainPath,
-        destPath,
-        runCommand: async () => ({ code: 0, stdout: '', stderr: '' })
-      })
-    ).rejects.toThrow(`Derive destination already exists: ${destPath}`)
+    await expect(createRepoManagedSnapshot({ mainPath, destPath })).rejects.toThrow(
+      `Derive destination already exists: ${destPath}`
+    )
   })
 })
 
@@ -433,9 +442,25 @@ describe('deriveRepoManagedFolderWorkspace', () => {
       runCommand: async () => ({ code: 0, stdout: '', stderr: '' })
     })
 
-    expect(phases).toEqual(['preparing', 'init', 'seed', 'sync', 'register'])
+    expect(phases).toEqual(['preparing', 'worktrees', 'linking', 'register'])
     expect(workspace.folderPath).toBe(join(workspaceDir, 'task-a'))
     expect(created).toHaveLength(1)
     await expect(stat(workspace.folderPath)).resolves.toBeTruthy()
   })
+
+  it('derives WSL snapshots beside the golden checkout when desktop workspaceDir is local', async () => {
+    const mainPath = String.raw`\\wsl.localhost\Ubuntu-24.04\home\miles\golden`
+
+    await expect(
+      resolveRepoManagedSnapshotPath({
+        mainPath,
+        workspaceName: 'task a',
+        settings: {
+          nestWorkspaces: false,
+          workspaceDir: String.raw`C:\Users\miles\orca\workspaces`
+        }
+      })
+    ).resolves.toBe(String.raw`\\wsl.localhost\Ubuntu-24.04\home\miles\task-a`)
+  })
+
 })
