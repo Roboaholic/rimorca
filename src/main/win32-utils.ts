@@ -73,6 +73,13 @@ export function resolveWindowsCommand(
       }
     }
   }
+  const localAppData = env.LOCALAPPDATA?.trim()
+  if (localAppData) {
+    const userProgramCandidate = join(localAppData, 'Programs', command, `${command}.exe`)
+    if (existsSync(userProgramCandidate)) {
+      return userProgramCandidate
+    }
+  }
   return command
 }
 

@@ -6,6 +6,7 @@ import { CliSection } from './CliSection'
 import { GeneralEditorSettingsSection } from './GeneralEditorSettingsSection'
 import { GeneralSupportSection } from './GeneralSupportSection'
 import { GeneralUpdateSettingsSection } from './GeneralUpdateSettingsSection'
+import { GitLabProjectsSettingsSection } from './GitLabProjectsSettingsSection'
 import { GeneralWorkspaceSettingsSection } from './GeneralWorkspaceSettingsSection'
 import {
   getGeneralCliSearchEntries,
@@ -168,6 +169,22 @@ export function GeneralPane({
         updateSettingsOrThrow={updateSettingsOrThrow}
         defaultsSupported={defaultsSupported}
         sourceDefaultsSupported={sourceDefaultsSupported}
+      />
+    ) : null,
+    matchesSettingsSearch(searchQuery, [
+      {
+        title: translate('settings.gitlabProjects.title', 'GitLab projects'),
+        description: translate(
+          'settings.gitlabProjects.description',
+          'Browse issues and merge requests from projects without opening their local checkout.'
+        ),
+        keywords: ['gitlab', 'project', 'repository', 'tasks', 'issues', 'merge requests']
+      }
+    ]) ? (
+      <GitLabProjectsSettingsSection
+        key="gitlab-projects"
+        settings={settings}
+        updateSettings={updateSettings}
       />
     ) : null,
     shouldShowProjectRuntimeSection(

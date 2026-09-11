@@ -12,11 +12,12 @@ export function recordGitLabProjectRecent(
   path: string
 ): void {
   const settings = store.getSettings()
-  const existing = settings.gitlabProjects ?? { pinned: [], recent: [] }
+  const existing = settings.gitlabProjects ?? { pinned: [], recent: [], configured: [] }
   store.updateSettings({
     gitlabProjects: {
       pinned: existing.pinned,
-      recent: computeNextGitLabRecents(existing.recent, host, path)
+      recent: computeNextGitLabRecents(existing.recent, host, path),
+      configured: existing.configured ?? []
     }
   })
 }

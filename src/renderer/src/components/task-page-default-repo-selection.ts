@@ -16,11 +16,16 @@ export type TaskProjectPickerGroup = {
 // Why: a repo whose identity probe has not answered (offline SSH host, cold
 // launch) is unknown, not ineligible — hiding it made non-GitHub repos vanish
 // with no explanation. Only a settled "no usable remote" is filtered out.
-export function getTaskEligibleRepos(repos: readonly Repo[]): Repo[] {
+export function getTaskEligibleRepos(
+  repos: readonly Repo[],
+  options: { allowRegisteredProjects?: boolean } = {}
+): Repo[] {
   return repos.filter(
     (repo) =>
-      isGitRepoKind(repo) &&
-      (hasProjectRemoteIdentity(repo) || isProjectRemoteIdentityPending(repo))
+      (options.allowRegisteredProjects || isGitRepoKind(repo)) &&
+      (options.allowRegisteredProjects ||
+        hasProjectRemoteIdentity(repo) ||
+        isProjectRemoteIdentityPending(repo))
   )
 }
 

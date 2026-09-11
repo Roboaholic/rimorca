@@ -25,6 +25,7 @@ export function registerGitLabWorkItemHandlers(store: Store): void {
         repoPath: string
         repoId?: string | null
         sourceContext?: TaskSourceContext | null
+        projectRef?: ProjectRef | null
         state?: 'opened' | 'merged' | 'closed' | 'all'
         page?: number
         perPage?: number
@@ -40,7 +41,8 @@ export function registerGitLabWorkItemHandlers(store: Store): void {
         repo.issueSourcePreference,
         normalizeGitLabSearchQuery(args.query),
         repoConnectionId(repo),
-        ...localGitOptionArgs(store, repo)
+        localGitOptionArgs(store, repo)[0],
+        args.projectRef
       )
     }
   )
@@ -49,7 +51,14 @@ export function registerGitLabWorkItemHandlers(store: Store): void {
   // Powers GitLabItemDialog's tabs.
   ipcMain.handle(
     'gitlab:workItemDetails',
-    async (_event, args: GitLabRepoSelectorArgs & { iid: number; type: 'issue' | 'mr' }) => {
+    async (
+      _event,
+      args: GitLabRepoSelectorArgs & {
+        iid: number
+        type: 'issue' | 'mr'
+        projectRef?: ProjectRef | null
+      }
+    ) => {
       const repo = assertRegisteredRepo(args, store)
       return getWorkItemDetails(
         repo.path,
@@ -57,8 +66,8 @@ export function registerGitLabWorkItemHandlers(store: Store): void {
         args.type,
         repo.issueSourcePreference,
         repoConnectionId(repo),
-        undefined,
-        ...localGitOptionArgs(store, repo)
+        args.projectRef,
+        localGitOptionArgs(store, repo)[0]
       )
     }
   )

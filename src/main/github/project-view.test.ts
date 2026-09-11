@@ -69,6 +69,12 @@ describe('classifyProjectError', () => {
     expect(classifyProjectError('gh auth login required', '').type).toBe('auth_required')
   })
 
+  it('classifies a missing gh executable without exposing ENOENT', () => {
+    const error = classifyProjectError('spawn gh ENOENT', '')
+    expect(error.type).toBe('auth_required')
+    expect(error.message).toBe('GitHub CLI (gh) is not installed on this execution host.')
+  })
+
   it('pins Enterprise auth and scope remediation to the selected host', () => {
     expect(
       classifyProjectError('gh auth login required', '', 'github.acme.test').message

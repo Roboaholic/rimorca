@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { computeNextGitLabRecents, GITLAB_RECENTS_MAX } from './gitlab-projects'
+import {
+  computeNextGitLabRecents,
+  GITLAB_RECENTS_MAX,
+  parseGitLabProjectAddress
+} from './gitlab-projects'
 
 describe('computeNextGitLabRecents', () => {
   const fixedNow = new Date('2026-05-08T10:00:00.000Z')
@@ -49,5 +53,24 @@ describe('computeNextGitLabRecents', () => {
     const snapshot = JSON.stringify(existing)
     computeNextGitLabRecents(existing, 'gitlab.com', 'g/p', fixedNow)
     expect(JSON.stringify(existing)).toBe(snapshot)
+  })
+})
+
+describe('parseGitLabProjectAddress', () => {
+  it('parses self-hosted project URLs with ports and strips .git', () => {
+    expect(parseGitLabProjectAddress('http://192.168.110.77:8929/dev/bsp_dev.git')).toEqual({
+      host: '192.168.110.77:8929',
+      path: 'dev/bsp_dev'
+    })
+  })
+
+  it('accepts host/path shorthand and rejects work-item URLs', () => {
+    expect(parseGitLabProjectAddress('gitlab.example.com/group/project')).toEqual({
+      host: 'gitlab.example.com',
+      path: 'group/project'
+    })
+    expect(
+      parseGitLabProjectAddress('https://gitlab.example.com/group/project/-/issues/7')
+    ).toBeNull()
   })
 })
