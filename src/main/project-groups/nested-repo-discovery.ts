@@ -10,6 +10,7 @@ import {
   type NestedRepoScanFilesystem,
   type TraversalFolder
 } from './nested-repo-scan-rules'
+import { REPO_MANAGED_MARKERS, REPO_METADATA_DIR } from '../../shared/repo-managed-project'
 
 async function hasGitMarker(dirPath: string): Promise<boolean> {
   try {
@@ -26,6 +27,22 @@ async function hasGitMarker(dirPath: string): Promise<boolean> {
     stat(join(dirPath, 'refs')).catch(() => null)
   ])
   return head?.isFile() === true && objects?.isDirectory() === true && refs?.isDirectory() === true
+}
+
+async function hasRepoMarker(dirPath: string): Promise<boolean> {
+  try {
+    const repoDir = await stat(join(dirPath, REPO_METADATA_DIR))
+    if (!repoDir.isDirectory()) return false
+  } catch {
+    return false
+  }
+  for (const markerName of REPO_MANAGED_MARKERS) {
+    try {
+      await stat(join(dirPath, REPO_METADATA_DIR, markerName))
+      return true
+    } catch {}
+  }
+  return false
 }
 
 async function readLocalDirectory(dirPath: string): Promise<NestedRepoDirectoryEntry[]> {
@@ -58,6 +75,7 @@ export async function scanNestedRepos(args: {
     joinPath: join,
     basename,
     hasGitMarker,
+    hasRepoMarker,
     isSelectedPathGitRepo: async (path: string) => isGitRepo(path) || (await hasGitMarker(path))
   }
   const buildResult = (selectedPathKind: NestedRepoScanResult['selectedPathKind']) => ({
@@ -82,6 +100,11 @@ export async function scanNestedRepos(args: {
   const emitProgress = (): void => {
     args.onProgress?.(buildResult('non_git_folder'))
   }
+
+  if (filesystem.hasRepoMarker && (await filesystem.hasRepoMarker(args.path))) {
+    return buildResult('repo_managed')
+  }
+  if (noteAbort()) return buildResult('non_git_folder')
 
   if (await filesystem.isSelectedPathGitRepo(args.path)) {
     return buildResult('git_repo')
