@@ -1,7 +1,10 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
-import { WORKTREE_LINKED_WORK_ITEM_CONTEXT_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import {
+  FOLDER_WORKSPACE_REPO_DERIVE_RUNTIME_CAPABILITY,
+  WORKTREE_LINKED_WORK_ITEM_CONTEXT_RUNTIME_CAPABILITY
+} from '../../../../shared/protocol-version'
 import {
   assertRuntimeEnvironmentCapability,
   callRuntimeRpc,
@@ -56,7 +59,13 @@ export function getFolderWorkspaceUpdateCoordinator(
 export function createFolderWorkspaceMutationActions(
   set: Parameters<StateCreator<AppState>>[0],
   get: Parameters<StateCreator<AppState>>[1]
-): Pick<RepoSlice, 'createFolderWorkspace' | 'updateFolderWorkspace' | 'deleteFolderWorkspace'> {
+): Pick<
+  RepoSlice,
+  | 'createFolderWorkspace'
+  | 'deriveRepoManagedFolderWorkspace'
+  | 'updateFolderWorkspace'
+  | 'deleteFolderWorkspace'
+> {
   return {
     createFolderWorkspace: async (args, options) => {
       try {
@@ -99,6 +108,54 @@ export function createFolderWorkspaceMutationActions(
       } catch (err) {
         console.error('Failed to create folder workspace:', err)
         const { title, description } = formatFolderWorkspaceCreateError(err)
+        throw new Error(`${title}. ${description}`)
+      }
+    },
+
+    deriveRepoManagedFolderWorkspace: async (args, options) => {
+      try {
+        const target = getActiveRuntimeTarget(
+          getFolderWorkspacePathStatusRouteSettings(options, get().settings)
+        )
+        if (target.kind === 'environment') {
+          await assertRuntimeEnvironmentCapability(
+            target.environmentId,
+            FOLDER_WORKSPACE_REPO_DERIVE_RUNTIME_CAPABILITY,
+            'Update the remote runtime to derive repo workspaces.'
+          )
+        }
+        const unsubscribe = window.api.folderWorkspaces.onDeriveProgress((progress) =>
+          options?.onProgress?.(progress)
+        )
+        let workspace: FolderWorkspace
+        try {
+          workspace =
+            target.kind === 'local'
+              ? await window.api.folderWorkspaces.deriveRepoManaged(args)
+              : (
+                  await callRuntimeRpc<{ folderWorkspace: FolderWorkspace }>(
+                    target,
+                    'folderWorkspace.deriveRepoManaged',
+                    args,
+                    { timeoutMs: 60 * 60 * 1000 }
+                  )
+                ).folderWorkspace
+        } finally {
+          unsubscribe()
+        }
+        const ownedWorkspace = folderWorkspaceWithFetchedOwner(
+          workspace,
+          target,
+          get().projectGroups
+        )
+        set((state) => ({
+          folderWorkspaces: [ownedWorkspace, ...state.folderWorkspaces],
+          folderWorkspacePathStatuses: {}
+        }))
+        return ownedWorkspace
+      } catch (error) {
+        console.error('Failed to derive repo-managed folder workspace:', error)
+        const { title, description } = formatFolderWorkspaceCreateError(error)
         throw new Error(`${title}. ${description}`)
       }
     },

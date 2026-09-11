@@ -21,6 +21,8 @@ export function useComposerSubmitOrchestration(
   const folderSubmitOrchestration = useFolderSubmitOrchestration({
     clearNewWorkspaceDraft: target.composerTargetStore.clearNewWorkspaceDraft,
     createFolderWorkspace: target.composerTargetStore.createFolderWorkspace,
+    deriveRepoManaged: target.asyncComposerState.deriveRepoManaged,
+    deriveRepoManagedFolderWorkspace: target.composerTargetStore.deriveRepoManagedFolderWorkspace,
     decisions: target.composerTargetStore.decisions,
     disabledTuiAgents: target.workspaceIdentityState.disabledTuiAgents,
     folderCreateDisabled: source.composerNavigationActions.folderCreateDisabled,
@@ -29,6 +31,7 @@ export function useComposerSubmitOrchestration(
     folderTargetIsRemote: target.runtimeTargetSelection.folderTargetIsRemote,
     folderTargetRuntimeEnvironmentId:
       target.runtimeTargetSelection.folderTargetRuntimeEnvironmentId,
+    folderWorkspaces: target.composerTargetStore.folderWorkspaces,
     isSubmissionCancelled: target.composerTargetStore.isSubmissionCancelled,
     lastAutoNameRef: target.asyncComposerState.lastAutoNameRef,
     linkedWorkItem: target.sourceContextState.linkedWorkItem,
@@ -36,11 +39,13 @@ export function useComposerSubmitOrchestration(
     note: target.sourceContextState.note,
     onCreated: target.composerTargetStore.onCreated,
     persistDraft: target.composerTargetStore.persistDraft,
+    repoCliProbe: target.asyncComposerState.repoCliProbe,
     resolvePendingSmartGitHubSubmit:
       external.githubSubmitResolution.resolvePendingSmartGitHubSubmit,
     selectedProjectGroup: target.initialTargetState.selectedProjectGroup,
     setCreateError: target.asyncComposerState.setCreateError,
     setCreating: target.asyncComposerState.setCreating,
+    setDeriveProgress: target.asyncComposerState.setDeriveProgress,
     settings: target.composerTargetStore.settings,
     taskSourceContext: target.sourceContextState.taskSourceContext,
     telemetrySource: target.composerTargetStore.telemetrySource

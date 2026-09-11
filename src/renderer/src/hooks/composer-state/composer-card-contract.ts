@@ -54,7 +54,6 @@ export type ComposerCardSourceProps = Pick<
   | 'sparsePresets'
   | 'sparseSelectedPresetId'
 >
-
 export type ComposerCardActionProps = {
   onRepoChange: ComposerModel['handleRepoChange']
   onProjectChange: ComposerModel['handleProjectChange']
@@ -108,4 +107,12 @@ export type ComposerCardActionProps = {
   selectedRepoPath: string | null
   onSparseSelectPreset: ComposerModel['handleSparseSelectPreset']
   sparseControlsEnabled?: boolean
+  showRepoManagedDerive: boolean
+  deriveRepoManaged: boolean
+  onDeriveRepoManagedChange: (next: boolean) => void
+  repoCliProbe: ComposerModel['repoCliProbe']
+  repoCliInstalling: ComposerModel['repoCliInstalling']
+  onInstallRepoCli: ComposerModel['handleInstallRepoCli']
+  deriveProgress: ComposerModel['deriveProgress']
+  repoManagedDeriveDisabled: boolean
 }
