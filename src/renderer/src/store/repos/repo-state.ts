@@ -207,6 +207,21 @@ export type RepoSlice = {
     },
     options?: FolderWorkspacePathStatusRouteOptions
   ) => Promise<FolderWorkspace | null>
+  deriveRepoManagedFolderWorkspace: (
+    args: {
+      projectGroupId: string
+      name?: string
+      folderPath?: string | null
+      connectionId?: string | null
+      linkedTask?: FolderWorkspace['linkedTask']
+      linkedTaskSourceContext?: FolderWorkspace['linkedTaskSourceContext']
+      createdWithAgent?: FolderWorkspace['createdWithAgent']
+      pendingFirstAgentMessageRename?: boolean
+    },
+    options?: FolderWorkspacePathStatusRouteOptions & {
+      onProgress?: (progress: import('../../../../shared/repo-managed-derive-progress').RepoManagedDeriveProgress) => void
+    }
+  ) => Promise<FolderWorkspace | null>
   getFolderWorkspacePathStatusCacheKey: (
     request: FolderWorkspacePathStatusRequest,
     options?: FolderWorkspacePathStatusRouteOptions

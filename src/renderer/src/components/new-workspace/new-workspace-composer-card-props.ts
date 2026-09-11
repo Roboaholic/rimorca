@@ -19,6 +19,8 @@ import type { SshConnectionStatus } from '../../../../shared/ssh-types'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { RepoCliProbe } from '../../../../shared/repo-managed-cli'
+import type { RepoManagedDeriveProgress } from '../../../../shared/repo-managed-derive-progress'
 
 export type RepoOption = React.ComponentProps<typeof RepoCombobox>['repos'][number]
 export type EphemeralVmRecipeOption = NonNullable<OrcaHooks['environmentRecipes']>[number]
@@ -79,6 +81,14 @@ export type NewWorkspaceComposerCardProps = {
   canReuseSelectedBranch: boolean
   reuseSelectedBranch: boolean
   onReuseSelectedBranchChange: (next: boolean) => void
+  showRepoManagedDerive?: boolean
+  deriveRepoManaged?: boolean
+  onDeriveRepoManagedChange?: (next: boolean) => void
+  repoManagedDeriveDisabled?: boolean
+  repoCliProbe?: RepoCliProbe | null
+  repoCliInstalling?: boolean
+  onInstallRepoCli?: () => Promise<void>
+  deriveProgress?: RepoManagedDeriveProgress | null
   showCreateMultiple?: boolean
   createMultiple?: boolean
   onCreateMultipleChange?: (next: boolean) => void

@@ -1,3 +1,4 @@
+import { isRepoManagedProjectGroup } from '../../../../shared/repo-managed-project'
 import { getAttachmentLabel } from '@/lib/new-workspace'
 import {
   getFullComposerCreateDisabled,
@@ -116,9 +117,15 @@ export function buildComposerCardProps(state: ComposerModel) {
     sparseSelectedPresetId,
     startFromResetHint,
     submit,
-    tuiAgent
+    tuiAgent,
+    deriveRepoManaged,
+    selectedProjectGroup,
+    handleInstallRepoCli,
+    repoCliInstalling,
+    repoCliProbe,
+    deriveProgress,
+    setDeriveRepoManaged
   } = state
-
   const createGateInput = {
     repoId,
     workspaceSeedName,
@@ -135,7 +142,10 @@ export function buildComposerCardProps(state: ComposerModel) {
     createGateMode === 'quick'
       ? getQuickComposerCreateDisabled(createGateInput)
       : getFullComposerCreateDisabled(createGateInput)
-  const createDisabled = isProjectGroupTarget ? folderCreateDisabled : repoCreateDisabled
+  const createDisabled = isProjectGroupTarget
+    ? folderCreateDisabled ||
+      (deriveRepoManaged && repoCliProbe !== null && !repoCliProbe.available)
+    : repoCreateDisabled
   const cardProps: ComposerCardSourceProps & ComposerCardActionProps = {
     eligibleRepos: isProjectGroupTarget ? folderSourceRepos : eligibleRepos,
     repoId,
@@ -182,6 +192,14 @@ export function buildComposerCardProps(state: ComposerModel) {
       smartNameSelection?.kind === 'branch',
     reuseSelectedBranch,
     onReuseSelectedBranchChange: handleReuseSelectedBranchChange,
+    showRepoManagedDerive: isRepoManagedProjectGroup(selectedProjectGroup),
+    deriveRepoManaged,
+    onDeriveRepoManagedChange: setDeriveRepoManaged,
+    repoManagedDeriveDisabled: Boolean(folderTargetConnectionId),
+    repoCliProbe,
+    repoCliInstalling,
+    onInstallRepoCli: handleInstallRepoCli,
+    deriveProgress,
     // Why: "create multiple" applies only to worktree (git) targets; folder-workspace keeps create-and-close.
     showCreateMultiple: !isProjectGroupTarget,
     createMultiple,

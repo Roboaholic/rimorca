@@ -60,6 +60,13 @@ type NewWorkspaceComposerAdvancedSectionProps = Pick<
   | 'sparseSelectedPresetId'
   | 'onSparseSelectPreset'
   | 'canUseSparseCheckout'
+  | 'showRepoManagedDerive'
+  | 'deriveRepoManaged'
+  | 'onDeriveRepoManagedChange'
+  | 'repoManagedDeriveDisabled'
+  | 'repoCliProbe'
+  | 'repoCliInstalling'
+  | 'onInstallRepoCli'
 > & {
   branchNameInputId: string
   setupConfigLabel: string
@@ -107,7 +114,14 @@ export function NewWorkspaceComposerAdvancedSection({
   sparsePresets,
   sparseSelectedPresetId,
   onSparseSelectPreset,
-  canUseSparseCheckout
+  canUseSparseCheckout,
+  showRepoManagedDerive = false,
+  deriveRepoManaged = false,
+  onDeriveRepoManagedChange,
+  repoManagedDeriveDisabled = false,
+  repoCliProbe = null,
+  repoCliInstalling = false,
+  onInstallRepoCli
 }: NewWorkspaceComposerAdvancedSectionProps): React.JSX.Element {
   const handleNotePaste = React.useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const text = event.clipboardData.getData('text/plain')
@@ -230,6 +244,60 @@ export function NewWorkspaceComposerAdvancedSection({
               className="w-full min-w-0 resize-none overflow-y-auto scrollbar-sleek rounded-md border border-input bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [field-sizing:content] max-h-40"
             />
           </div>
+          {showRepoManagedDerive ? (
+            <div className="rounded-md border border-border/60 bg-muted/25 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-xs font-medium text-foreground">
+                    {translate(
+                      'auto.components.NewWorkspaceComposerCard.deriveRepoManaged',
+                      'Derive a clean workspace'
+                    )}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {repoManagedDeriveDisabled
+                      ? translate(
+                          'auto.components.NewWorkspaceComposerCard.deriveRepoManagedSshHint',
+                          'Deriving on SSH requires an Orca runtime on that host.'
+                        )
+                      : translate(
+                          'auto.components.NewWorkspaceComposerCard.deriveRepoManagedHint',
+                          'Create an isolated checkout with repo so another task cannot clobber this one.'
+                        )}
+                  </span>
+                </span>
+                <SettingsSwitch
+                  checked={deriveRepoManaged}
+                  disabled={repoManagedDeriveDisabled}
+                  onChange={() => onDeriveRepoManagedChange?.(!deriveRepoManaged)}
+                  ariaLabel={translate(
+                    'auto.components.NewWorkspaceComposerCard.deriveRepoManaged',
+                    'Derive a clean workspace'
+                  )}
+                />
+              </div>
+              {repoCliProbe && !repoCliProbe.available && repoCliProbe.pythonAvailable ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 text-xs"
+                  disabled={repoCliInstalling}
+                  onClick={() => void onInstallRepoCli?.()}
+                >
+                  {repoCliInstalling
+                    ? translate(
+                        'auto.components.NewWorkspaceComposerCard.deriveRepoManagedInstalling',
+                        'Installing…'
+                      )
+                    : translate(
+                        'auto.components.NewWorkspaceComposerCard.deriveRepoManagedInstallAction',
+                        'Install repo CLI'
+                      )}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
           {setupControlsEnabled && setupConfig ? (
             <div className="space-y-2">

@@ -67,6 +67,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
       updateRepo: s.updateRepo,
       updateWorktreeMeta: s.updateWorktreeMeta,
       createFolderWorkspace: s.createFolderWorkspace,
+      deriveRepoManagedFolderWorkspace: s.deriveRepoManagedFolderWorkspace,
       setSidebarOpen: s.setSidebarOpen,
       closeModal: s.closeModal,
       openSettingsPage: s.openSettingsPage,
@@ -85,6 +86,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
     updateRepo,
     updateWorktreeMeta,
     createFolderWorkspace,
+    deriveRepoManagedFolderWorkspace,
     setSidebarOpen,
     closeModal,
     openSettingsPage,
@@ -126,6 +128,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
   const runtimeStatusByEnvironmentId = useAppStore((s) => s.runtimeStatusByEnvironmentId)
 
   const workspaceHostScope = useAppStore((s) => s.workspaceHostScope)
+  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
 
   const eligibleRepos = useMemo(() => getComposerEligibleRepos(repos), [repos])
 
@@ -188,6 +191,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
     updateRepo,
     updateWorktreeMeta,
     createFolderWorkspace,
+    deriveRepoManagedFolderWorkspace,
     setSidebarOpen,
     closeModal,
     openSettingsPage,
@@ -215,6 +219,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
     eligibleRepos,
     hostOptions,
     actionableHostIds,
+    folderWorkspaces,
     seedActiveRepoId
   }
 }

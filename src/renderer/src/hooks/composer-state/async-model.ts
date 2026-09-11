@@ -38,6 +38,23 @@ export type ComposerAsyncModel = {
   setCreating: React.Dispatch<React.SetStateAction<boolean>>
   createError: WorkspaceCreateErrorDisplay | null
   setCreateError: React.Dispatch<React.SetStateAction<WorkspaceCreateErrorDisplay | null>>
+  deriveRepoManaged: boolean
+  setDeriveRepoManaged: React.Dispatch<React.SetStateAction<boolean>>
+  repoCliProbe: import('../../../../shared/repo-managed-cli').RepoCliProbe | null
+  setRepoCliProbe: React.Dispatch<
+    React.SetStateAction<import('../../../../shared/repo-managed-cli').RepoCliProbe | null>
+  >
+  repoCliInstalling: boolean
+  setRepoCliInstalling: React.Dispatch<React.SetStateAction<boolean>>
+  deriveProgress:
+    | import('../../../../shared/repo-managed-derive-progress').RepoManagedDeriveProgress
+    | null
+  setDeriveProgress: React.Dispatch<
+    React.SetStateAction<
+      import('../../../../shared/repo-managed-derive-progress').RepoManagedDeriveProgress | null
+    >
+  >
+  handleInstallRepoCli: () => Promise<void>
   createMultiple: boolean
   setCreateMultiple: React.Dispatch<React.SetStateAction<boolean>>
   advancedOpen: boolean

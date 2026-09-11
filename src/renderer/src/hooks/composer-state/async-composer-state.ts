@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ComposerModel } from './composer-model'
 
 type ComposerAsyncStateInput = Pick<
@@ -7,6 +8,8 @@ type ComposerAsyncStateInput = Pick<
   | 'decisions'
   | 'draftLinkedWorkItemSeed'
   | 'enableIssueAutomation'
+  | 'folderTargetConnectionId'
+  | 'selectedProjectGroup'
   | 'initialGitHubWorkItem'
   | 'initialLinkedWorkItemSeed'
   | 'initialName'
@@ -23,11 +26,13 @@ type ComposerAsyncStateInput = Pick<
   | 'setName'
 >
 
-import { useState, useRef, useEffect } from 'react'
 import type { OrcaHooks, SetupAgentStartupPolicy } from '../../../../shared/orca-yaml-hook-types'
 import type { IssueCommandReadResult } from '@/runtime/runtime-hooks-client'
 import type { WorkspaceCreateErrorDisplay } from '@/lib/workspace-create-error-format'
 import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
+import type { RepoCliProbe } from '../../../../shared/repo-managed-cli'
+import type { RepoManagedDeriveProgress } from '../../../../shared/repo-managed-derive-progress'
+import { isRepoManagedProjectGroup } from '../../../../shared/repo-managed-project'
 import { CONTEXTUAL_TOUR_ENABLE_AUTO_WORKSPACE_NAME_EVENT } from '@/components/contextual-tours/contextual-tour-composer-events'
 import type { GitHubRepositoryIdentity } from '../../../../shared/github/pull-request-types'
 import { getRepoSetupAgentStartupPolicy } from './setup-policy-decisions'
@@ -40,6 +45,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     decisions,
     draftLinkedWorkItemSeed,
     enableIssueAutomation,
+    folderTargetConnectionId,
     initialGitHubWorkItem,
     initialLinkedWorkItemSeed,
     initialName,
@@ -48,6 +54,7 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     newWorkspaceDraft,
     note,
     persistDraft,
+    selectedProjectGroup,
     selectedRepo,
     selectedRepoConnectionId,
     selectedRepoHookContextKey,
@@ -98,6 +105,14 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
   } | null>(null)
 
   const [creating, setCreating] = useState(false)
+
+  const [deriveRepoManaged, setDeriveRepoManaged] = useState(false)
+
+  const [repoCliProbe, setRepoCliProbe] = useState<RepoCliProbe | null>(null)
+
+  const [repoCliInstalling, setRepoCliInstalling] = useState(false)
+
+  const [deriveProgress, setDeriveProgress] = useState<RepoManagedDeriveProgress | null>(null)
 
   const [createError, setCreateError] = useState<WorkspaceCreateErrorDisplay | null>(null)
 
@@ -183,6 +198,52 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
       )
     }
   }, [setName])
+  useEffect(() => {
+    if (
+      !selectedProjectGroup ||
+      !isRepoManagedProjectGroup(selectedProjectGroup) ||
+      folderTargetConnectionId
+    ) {
+      setRepoCliProbe(null)
+      return
+    }
+    const mainPath = selectedProjectGroup.parentPath
+    if (!mainPath) {
+      setRepoCliProbe(null)
+      return
+    }
+    let cancelled = false
+    void window.api.folderWorkspaces.probeRepoCli({ mainPath }).then(
+      (probe) => {
+        if (!cancelled) setRepoCliProbe(probe)
+      },
+      () => {
+        if (!cancelled)
+          setRepoCliProbe({
+            available: false,
+            source: 'missing',
+            program: null,
+            pythonAvailable: false
+          })
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [folderTargetConnectionId, selectedProjectGroup])
+
+  const handleInstallRepoCli = useCallback(async (): Promise<void> => {
+    if (repoCliInstalling) return
+    setRepoCliInstalling(true)
+    try {
+      const probe = await window.api.folderWorkspaces.installRepoCli()
+      setRepoCliProbe(probe)
+    } catch (error) {
+      console.error('Failed to install repo CLI:', error)
+    } finally {
+      setRepoCliInstalling(false)
+    }
+  }, [repoCliInstalling])
 
   const composerRef = useRef<HTMLDivElement | null>(null)
 
@@ -237,6 +298,15 @@ export function useComposerAsyncState(input: ComposerAsyncStateInput) {
     setCreating,
     createError,
     setCreateError,
+    deriveRepoManaged,
+    setDeriveRepoManaged,
+    repoCliProbe,
+    setRepoCliProbe,
+    repoCliInstalling,
+    setRepoCliInstalling,
+    handleInstallRepoCli,
+    deriveProgress,
+    setDeriveProgress,
     createMultiple,
     setCreateMultiple,
     advancedOpen,

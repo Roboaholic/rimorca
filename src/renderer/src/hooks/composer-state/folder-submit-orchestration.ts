@@ -7,6 +7,11 @@ type FolderSubmitOrchestrationInput = Pick<
   | 'decisions'
   | 'disabledTuiAgents'
   | 'folderCreateDisabled'
+  | 'deriveRepoManaged'
+  | 'deriveRepoManagedFolderWorkspace'
+  | 'folderWorkspaces'
+  | 'repoCliProbe'
+  | 'setDeriveProgress'
   | 'folderSourceRepos'
   | 'folderTargetConnectionId'
   | 'folderTargetIsRemote'
@@ -30,35 +35,33 @@ type FolderSubmitOrchestrationInput = Pick<
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
+import { resolveFolderWorkspaceCreateIntent } from '../../../../shared/repo-managed-project'
 import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
-import {
-  resolveFolderWorkspaceLaunchDraft,
-  submitFolderWorkspaceCreate
-} from '@/components/sidebar/folder-workspace-composer-submit'
+import { submitFolderWorkspaceCreate } from '@/components/sidebar/folder-workspace-composer-submit'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../../shared/tui-agent-launch-defaults'
-import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
-import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
-import { translate } from '@/i18n/i18n'
 import {
   formatWorkspaceCreateError,
   getWorkspaceCreateErrorToastMessage
 } from '@/lib/workspace-create-error-format'
 import { toast } from 'sonner'
+import { translate } from '@/i18n/i18n'
 
 export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInput) {
   const {
     clearNewWorkspaceDraft,
     createFolderWorkspace,
+    deriveRepoManaged,
+    deriveRepoManagedFolderWorkspace,
     decisions,
     disabledTuiAgents,
     folderCreateDisabled,
     folderSourceRepos,
-    folderTargetConnectionId,
     folderTargetIsRemote,
     folderTargetRuntimeEnvironmentId,
+    folderWorkspaces,
     isSubmissionCancelled,
     lastAutoNameRef,
     linkedWorkItem,
@@ -66,56 +69,50 @@ export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInp
     note,
     onCreated,
     persistDraft,
+    repoCliProbe,
     resolvePendingSmartGitHubSubmit,
     selectedProjectGroup,
     setCreateError,
     setCreating,
+    setDeriveProgress,
     settings,
     taskSourceContext,
     telemetrySource
   } = input
   const { canResolveFolderSmartGitHubSubmit } = decisions
 
+  const effectiveFolderCreateDisabled =
+    folderCreateDisabled || (deriveRepoManaged && repoCliProbe !== null && !repoCliProbe.available)
   const submitFolderTarget = useCallback(
     async (requestedAgent: TuiAgent | null): Promise<void> => {
-      if (!selectedProjectGroup?.parentPath || folderCreateDisabled) {
-        return
-      }
+      if (!selectedProjectGroup?.parentPath || effectiveFolderCreateDisabled) return
       setCreateError(null)
       setCreating(true)
+      setDeriveProgress(null)
       try {
-        const shouldResolveSmartGitHubSubmit = canResolveFolderSmartGitHubSubmit({
-          hasFolderSourceRepos: folderSourceRepos.length > 0
-        })
-        const smartGitHubSettlement = await settleComposerSubmit(
-          shouldResolveSmartGitHubSubmit
+        const settlement = await settleComposerSubmit(
+          canResolveFolderSmartGitHubSubmit({ hasFolderSourceRepos: folderSourceRepos.length > 0 })
             ? resolvePendingSmartGitHubSubmit()
             : Promise.resolve({ kind: 'none' } as const),
           isSubmissionCancelled
         )
-        if (smartGitHubSettlement.status === 'cancelled') {
-          return
-        }
-        const smartGitHubResolution = smartGitHubSettlement.value
-        const smartGitHubMetadata =
-          smartGitHubResolution.kind === 'none' ? null : smartGitHubResolution
-        const submitLinkedWorkItem = smartGitHubMetadata?.linkedWorkItem ?? linkedWorkItem
+        if (settlement.status === 'cancelled') return
+        const metadata = settlement.value.kind === 'none' ? null : settlement.value
+        const linked = metadata?.linkedWorkItem ?? linkedWorkItem
         const agent =
           requestedAgent && isTuiAgentEnabled(requestedAgent, disabledTuiAgents)
             ? requestedAgent
             : null
-        if (isSubmissionCancelled()) {
-          return
-        }
-        const folderLaunchDraftText =
-          agent && submitLinkedWorkItem
-            ? resolveFolderWorkspaceLaunchDraft(submitLinkedWorkItem, note)
-            : null
-        const folderWorkspaceCreated = await submitFolderWorkspaceCreate({
+        const createIntent = resolveFolderWorkspaceCreateIntent({
+          group: selectedProjectGroup,
+          folderWorkspaces,
+          deriveRepoManaged
+        })
+        const created = await submitFolderWorkspaceCreate({
           projectGroup: selectedProjectGroup,
-          name: smartGitHubMetadata?.workspaceName ?? name,
+          name: metadata?.workspaceName ?? name,
           lastAutoName: lastAutoNameRef.current,
-          linkedWorkItem: submitLinkedWorkItem,
+          linkedWorkItem: linked,
           linkedTaskSourceContext: taskSourceContext,
           note,
           quickAgent: agent,
@@ -125,41 +122,28 @@ export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInp
             ? resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs)
             : undefined,
           agentEnv: agent ? resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv) : undefined,
-          sessionOptions: agent
-            ? resolveInitialNativeChatSessionOptions(
-                {
-                  experimentalNativeChat: settings?.experimentalNativeChat,
-                  openAgentTabsInChatByDefault: settings?.openAgentTabsInChatByDefault,
-                  nativeChatSessionOptions: settings?.nativeChatSessionOptions
-                },
-                {
-                  agent,
-                  ...(folderLaunchDraftText
-                    ? { promptDelivery: 'draft' as const, launchDraftText: folderLaunchDraftText }
-                    : {}),
-                  nativeChatTranscriptIsLocalReadable:
-                    isNativeChatTranscriptLocalReadable(folderTargetConnectionId)
-                }
-              )
-            : undefined,
           terminalWindowsShell: settings?.terminalWindowsShell,
           isRemote: folderTargetIsRemote,
           launchSource: telemetrySource === 'onboarding' ? 'onboarding' : 'new_workspace_composer',
           runtimeEnvironmentId: folderTargetRuntimeEnvironmentId,
+          deriveRepoManaged: createIntent.kind === 'derive',
           createFolderWorkspace: (input) =>
             createFolderWorkspace(input, {
               runtimeEnvironmentId: folderTargetRuntimeEnvironmentId
             }),
+          deriveRepoManagedFolderWorkspace: (input) =>
+            deriveRepoManagedFolderWorkspace(input, {
+              runtimeEnvironmentId: folderTargetRuntimeEnvironmentId,
+              onProgress: (progress) => setDeriveProgress(progress)
+            }),
           onOpenChange: (open) => {
             if (!open) {
-              if (persistDraft) {
-                clearNewWorkspaceDraft()
-              }
+              if (persistDraft) clearNewWorkspaceDraft()
               onCreated?.()
             }
           }
         })
-        if (!folderWorkspaceCreated) {
+        if (!created) {
           setCreateError({
             title: translate(
               'auto.hooks.useComposerState.folderWorkspaceCreateFailedTitle',
@@ -172,26 +156,28 @@ export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInp
           })
         }
       } catch (error) {
-        if (isSubmissionCancelled()) {
-          return
+        if (!isSubmissionCancelled()) {
+          const formattedError = formatWorkspaceCreateError(error)
+          setCreateError(formattedError)
+          toast.error(getWorkspaceCreateErrorToastMessage(formattedError))
         }
-        const formattedError = formatWorkspaceCreateError(error)
-        setCreateError(formattedError)
-        toast.error(getWorkspaceCreateErrorToastMessage(formattedError))
       } finally {
         setCreating(false)
+        setDeriveProgress(null)
       }
     },
     [
+      canResolveFolderSmartGitHubSubmit,
       clearNewWorkspaceDraft,
       createFolderWorkspace,
-      canResolveFolderSmartGitHubSubmit,
+      deriveRepoManaged,
+      deriveRepoManagedFolderWorkspace,
       disabledTuiAgents,
-      folderCreateDisabled,
-      folderTargetConnectionId,
+      effectiveFolderCreateDisabled,
+      folderSourceRepos.length,
       folderTargetIsRemote,
       folderTargetRuntimeEnvironmentId,
-      folderSourceRepos.length,
+      folderWorkspaces,
       isSubmissionCancelled,
       linkedWorkItem,
       name,
@@ -200,12 +186,14 @@ export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInp
       persistDraft,
       resolvePendingSmartGitHubSubmit,
       selectedProjectGroup,
+      setCreateError,
+      setCreating,
+      setDeriveProgress,
       settings,
       taskSourceContext,
       telemetrySource,
       lastAutoNameRef,
-      setCreateError,
-      setCreating
+      repoCliProbe
     ]
   )
 

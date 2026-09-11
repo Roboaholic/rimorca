@@ -86,6 +86,15 @@ export type ComposerStoreActions = {
     },
     options?: { runtimeEnvironmentId?: string | null }
   ) => Promise<FolderWorkspace | null>
+  deriveRepoManagedFolderWorkspace: (
+    args: Parameters<NonNullable<Window['api']['folderWorkspaces']['deriveRepoManaged']>>[0],
+    options?: {
+      runtimeEnvironmentId?: string | null
+      onProgress?: (
+        progress: import('../../../../shared/repo-managed-derive-progress').RepoManagedDeriveProgress
+      ) => void
+    }
+  ) => Promise<FolderWorkspace | null>
   setSidebarOpen: (open: boolean) => void
   closeModal: () => void
   openSettingsPage: () => void

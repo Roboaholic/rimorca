@@ -1,4 +1,5 @@
 import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
 import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import type { ProjectGroup } from '../../../../shared/project-group-types'
 import type { Repo } from '../../../../shared/repo-types'
@@ -49,6 +50,7 @@ export type ComposerTargetStoreModel = {
   updateRepo: ComposerStoreActions['updateRepo']
   updateWorktreeMeta: ComposerStoreActions['updateWorktreeMeta']
   createFolderWorkspace: ComposerStoreActions['createFolderWorkspace']
+  deriveRepoManagedFolderWorkspace: ComposerStoreActions['deriveRepoManagedFolderWorkspace']
   setSidebarOpen: ComposerStoreActions['setSidebarOpen']
   closeModal: ComposerStoreActions['closeModal']
   openSettingsPage: ComposerStoreActions['openSettingsPage']
@@ -73,6 +75,7 @@ export type ComposerTargetStoreModel = {
   runtimeEnvironments: readonly PublicKnownRuntimeEnvironment[]
   runtimeStatusByEnvironmentId: Map<string, RuntimeEnvironmentStatus>
   workspaceHostScope: WorkspaceHostScope
+  folderWorkspaces: readonly FolderWorkspace[]
   eligibleRepos: Repo[]
   hostOptions: ExecutionHostRegistryEntry[]
   actionableHostIds: Set<ExecutionHostId>
