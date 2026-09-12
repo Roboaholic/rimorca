@@ -13,6 +13,7 @@ import {
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import type { RuntimeStore } from './runtime-store-contract'
 import { folderWorkspaceKey } from '../../shared/workspace-scope'
+import { deleteFolderWorkspaceWithDerivedRepo, removeDerivedRepoPath } from '../project-groups/repo-managed-cleanup'
 
 type RuntimeProjectGroupDependencies = {
   getStore: () => RuntimeStore | null
@@ -210,31 +211,39 @@ export class RuntimeProjectGroupController {
     return updated
   }
 
-  async deleteFolderWorkspace(folderWorkspaceId: string): Promise<{ deleted: boolean }> {
+  async deleteFolderWorkspace(
+    folderWorkspaceId: string,
+    options?: { deleteFiles?: boolean }
+  ): Promise<{ deleted: boolean }> {
     const store = this.deps.getStore()
-    if (!store?.removeFolderWorkspace) {
-      throw new Error('runtime_unavailable')
-    }
+    if (!store?.removeFolderWorkspace) throw new Error('runtime_unavailable')
     const workspace = store.getFolderWorkspaces?.().find((entry) => entry.id === folderWorkspaceId)
     if (workspace) {
       const worktreeId = folderWorkspaceKey(folderWorkspaceId)
-      // Why: a mixed-host group has no single PTY target; forgetting the
-      // workspace must still succeed, so skip the sweep instead of failing.
       let connectionId: string | null | undefined
       try {
         connectionId = this.deps.resolveFolderConnectionId(workspace)
       } catch (error) {
         console.warn(`[folder-workspace] skipping PTY teardown for ${worktreeId}:`, error)
       }
-      if (connectionId !== undefined) {
-        await this.deps.teardownFolderWorkspacePtys(worktreeId, connectionId)
-      }
+      if (connectionId !== undefined) await this.deps.teardownFolderWorkspacePtys(worktreeId, connectionId)
       this.deps.cleanupRemovedFolderWorkspaceState(worktreeId)
     }
-    const deleted = store.removeFolderWorkspace(folderWorkspaceId)
-    if (deleted) {
-      this.deps.notifyReposChanged()
-    }
+    const deleted = await deleteFolderWorkspaceWithDerivedRepo({
+      folderWorkspaceId,
+      deleteFiles: options?.deleteFiles,
+      getFolderWorkspace: (id) => store.getFolderWorkspaces?.().find((entry) => entry.id === id),
+      getProjectGroups: () => store.getProjectGroups?.() ?? [],
+      removeFolderWorkspace: (id) => store.removeFolderWorkspace?.(id) ?? false,
+      removePath: async (path, connectionId) => {
+        if (connectionId) {
+          await getSshFilesystemProvider(connectionId).deletePath(path, true)
+          return
+        }
+        await removeDerivedRepoPath(path)
+      }
+    })
+    if (deleted) this.deps.notifyReposChanged()
     return { deleted }
   }
 }

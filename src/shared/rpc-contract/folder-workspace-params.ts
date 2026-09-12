@@ -65,7 +65,8 @@ export const FolderWorkspaceUpdate = z.object({
 })
 
 export const FolderWorkspaceSelector = z.object({
-  folderWorkspaceId: requiredString('Missing folder workspace id')
+  folderWorkspaceId: requiredString('Missing folder workspace id'),
+  deleteFiles: z.boolean().optional()
 })
 
 export const FolderWorkspacePathStatus = z.discriminatedUnion('scope', [

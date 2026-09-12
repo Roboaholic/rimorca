@@ -35,7 +35,8 @@ export const FOLDER_WORKSPACE_METHODS = [
   defineMethod({
     name: 'folderWorkspace.delete',
     params: FolderWorkspaceSelector,
-    handler: async (params, { runtime }) => runtime.deleteFolderWorkspace(params.folderWorkspaceId)
+    handler: async (params, { runtime }) =>
+      runtime.deleteFolderWorkspace(params.folderWorkspaceId, { deleteFiles: params.deleteFiles })
   }),
   defineMethod({
     name: 'folderWorkspace.getPathStatus',

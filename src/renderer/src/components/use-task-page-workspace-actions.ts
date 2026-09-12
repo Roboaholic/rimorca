@@ -3,6 +3,9 @@ import { useCallback } from 'react'
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import type { GitLabWorkItem } from '../../../shared/gitlab-types'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
+import type { Repo } from '../../../shared/repo-types'
+import type { ProjectGroup } from '../../../shared/project-group-types'
+import { isRepoManagedProjectGroup } from '../../../shared/repo-managed-project'
 import { useAppStore } from '@/store'
 import { findGithubWorkItemWorkspaceAttachment } from '@/lib/github-work-item-workspace-attachment'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -13,6 +16,23 @@ import {
   getGitLabWorkItemWorkspaceSeed,
   getTaskPageRepoSourceContext
 } from './task-page-source-context'
+export function getTaskWorkspaceProjectGroupId(
+  repo: Repo | null | undefined,
+  projectGroups: readonly ProjectGroup[],
+  activeRepo?: Repo | null,
+  allowFallback = false
+): string | undefined {
+  for (const candidate of [repo, activeRepo]) {
+    if (!candidate?.projectGroupId) continue
+    const group = projectGroups.find((entry) => entry.id === candidate.projectGroupId)
+    if (isRepoManagedProjectGroup(group)) return group.id
+  }
+  if (allowFallback) {
+    return projectGroups.find((group) => isRepoManagedProjectGroup(group))?.id
+  }
+  return undefined
+}
+
 export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
   const { repoMap, openModal } = model
   const openComposerForItem = useCallback(
@@ -29,12 +49,18 @@ export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
             }
           : {})
       }
+      const repo = repoMap.get(item.repoId)
+      const initialProjectGroupId = getTaskWorkspaceProjectGroupId(
+        repo,
+        useAppStore.getState().projectGroups
+      )
       openModal('new-workspace-composer', {
         linkedWorkItem,
         initialGitHubWorkItem: item,
-        taskSourceContext: getTaskPageRepoSourceContext(repoMap.get(item.repoId), 'github'),
+        taskSourceContext: getTaskPageRepoSourceContext(repo, 'github'),
         prefilledName: getGitHubWorkItemWorkspaceSeed(item),
         initialRepoId: item.repoId,
+        ...(initialProjectGroupId ? { initialProjectGroupId } : {}),
         enableIssueAutomation: item.type === 'issue',
         telemetrySource: 'sidebar'
       })
@@ -93,15 +119,23 @@ export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
             }
           : {})
       }
+      const repo = repoMap.get(item.repoId)
+      const state = useAppStore.getState()
+      const initialProjectGroupId = getTaskWorkspaceProjectGroupId(
+        repo,
+        state.projectGroups,
+        repoMap.get(state.activeRepoId ?? ''),
+        Boolean(item.projectRef)
+      )
       openModal('new-workspace-composer', {
         linkedWorkItem,
-        taskSourceContext: getTaskPageRepoSourceContext(
-          repoMap.get(item.repoId),
-          'gitlab',
-          item.projectRef
-        ),
+        taskSourceContext: getTaskPageRepoSourceContext(repo, 'gitlab', item.projectRef),
         prefilledName: getGitLabWorkItemWorkspaceSeed(item),
-        initialRepoId: item.repoId,
+        ...(initialProjectGroupId
+          ? { initialProjectGroupId }
+          : item.projectRef
+            ? {}
+            : { initialRepoId: item.repoId }),
         telemetrySource: 'sidebar'
       })
     },

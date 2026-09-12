@@ -33,7 +33,8 @@ export function useTaskPageSourceAvailabilityPrelude(model: TaskPageRuntimeHosts
     taskSource,
     runtimePreflightStatusByHostId,
     taskSourceRepoContexts,
-    hostRegistryById
+    hostRegistryById,
+    configuredGitLabProjects
   } = model
   const getTaskPickerRepoHostLabel = useCallback(
     (repo: Repo): string | null => {
@@ -48,11 +49,11 @@ export function useTaskPageSourceAvailabilityPrelude(model: TaskPageRuntimeHosts
     if (taskSource !== 'github' && taskSource !== 'gitlab') {
       return []
     }
-    return [
+    const availability = [
       ...taskSourceRepoContexts.flatMap((context) => {
         const host = hostRegistryById.get(context.hostId)
-        const availability = getTaskSourceHostAvailabilityForHost(host, context.hostId)
-        return availability ? [availability] : []
+        const hostAvailability = getTaskSourceHostAvailabilityForHost(host, context.hostId)
+        return hostAvailability ? [hostAvailability] : []
       }),
       ...getRepoBackedProviderAvailability({
         provider: taskSource,
@@ -62,7 +63,11 @@ export function useTaskPageSourceAvailabilityPrelude(model: TaskPageRuntimeHosts
         runtimePreflightStatusByHostId
       })
     ]
+    return taskSource === 'gitlab' && configuredGitLabProjects.length > 0
+      ? availability.filter((entry) => entry.reason !== 'missing-provider-auth')
+      : availability
   }, [
+    configuredGitLabProjects.length,
     hostRegistryById,
     preflightStatus,
     preflightStatusChecked,

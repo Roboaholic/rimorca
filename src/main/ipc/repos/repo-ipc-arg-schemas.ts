@@ -165,7 +165,8 @@ export const FolderWorkspaceUpdateArgs = z.object({
 })
 
 export const FolderWorkspaceSelectorArgs = z.object({
-  folderWorkspaceId: z.string().min(1)
+  folderWorkspaceId: z.string().min(1),
+  deleteFiles: z.boolean().optional()
 })
 
 export const FolderWorkspacePathStatusArgs = z.discriminatedUnion('scope', [

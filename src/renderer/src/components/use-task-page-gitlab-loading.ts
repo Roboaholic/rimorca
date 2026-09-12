@@ -19,29 +19,36 @@ export function useTaskPageGitLabLoading(model: TaskPageProviderMetadataModel) {
     gitlabView,
     setGitlabTodos,
     setGitlabTodosLoading,
-    activeGitlabFilter
+    activeGitlabFilter,
+    selectedConfiguredGitLabProjects,
+    gitlabExecutionRepo,
+    taskSourceHostAvailability
   } = model
-  // Why: fetch GitLab Issues and MRs separately so errors stay isolated per tab (mirrors GitHub's split endpoints).
   useEffect(() => {
-    if (taskSource !== 'gitlab') {
-      return
-    }
-    if (gitlabView === 'todos') {
+    if (taskSource !== 'gitlab' || gitlabView === 'todos') {
       return
     }
     const activeIssueFilter =
       gitlabView === 'issues' && isGitLabIssueFilter(activeGitlabFilter) ? activeGitlabFilter : null
     const activeMRFilter =
       gitlabView === 'mrs' && isGitLabMRFilter(activeGitlabFilter) ? activeGitlabFilter : null
-    if (
-      (gitlabView === 'issues' && !activeIssueFilter) ||
-      (gitlabView === 'mrs' && !activeMRFilter)
-    ) {
+    if (!activeIssueFilter && !activeMRFilter) {
       return
     }
-    // Why: folder-mode repos lack remotes to derive a GitLab project from; SSH-backed repos use the same provider-aware IPC path.
-    const eligibleRepos = selectedRepos
-    if (eligibleRepos.length === 0) {
+    if (taskSourceHostAvailability.length > 0) {
+      setGitlabItems([])
+      setGitlabLoading(false)
+      return
+    }
+    const anchorRepo = gitlabExecutionRepo
+    const explicitTargets = anchorRepo
+      ? selectedConfiguredGitLabProjects.map((projectRef) => ({ repo: anchorRepo, projectRef }))
+      : []
+    const targets =
+      explicitTargets.length > 0
+        ? explicitTargets
+        : selectedRepos.map((repo) => ({ repo, projectRef: null }))
+    if (targets.length === 0) {
       setGitlabItems([])
       setGitlabLoading(false)
       setGitlabError(null)
@@ -50,107 +57,85 @@ export function useTaskPageGitLabLoading(model: TaskPageProviderMetadataModel) {
     let stale = false
     setGitlabLoading(true)
     setGitlabError(null)
-    const fetchItems =
-      gitlabView === 'issues'
-        ? (repo: (typeof eligibleRepos)[0]) => {
-            const isAssignedToMe = activeIssueFilter === 'assigned-to-me'
-            return window.api.gl
-              .listIssues({
-                repoPath: repo.path,
-                repoId: repo.id,
-                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
-                state: 'opened',
-                assignee: isAssignedToMe ? '@me' : undefined,
-                limit: 50
-              })
-              .then((result) => {
-                const typed = result as {
-                  items: GitLabWorkItem[]
-                  error?: {
-                    type?: string
-                    message: string
-                  }
-                }
-                // Why: not_found just means the repo isn't a GitLab project (mixed selection); drop it so the list shows no false errors.
-                const error = typed.error?.type === 'not_found' ? undefined : typed.error
-                return {
-                  repoId: repo.id,
-                  items: typed.items,
-                  error
-                }
-              })
-          }
-        : (repo: (typeof eligibleRepos)[0]) =>
-            window.api.gl
-              .listMRs({
-                repoPath: repo.path,
-                repoId: repo.id,
-                sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab'),
-                state: activeMRFilter ?? 'opened',
-                page: 1,
-                perPage: 50
-              })
-              .then((result) => {
-                const typed = result as {
-                  items: GitLabWorkItem[]
-                  error?: {
-                    type?: string
-                    message: string
-                  }
-                }
-                const error = typed.error?.type === 'not_found' ? undefined : typed.error
-                return {
-                  repoId: repo.id,
-                  items: typed.items,
-                  error
-                }
-              })
-    void Promise.allSettled(eligibleRepos.map(fetchItems))
+    const fetchItems = async (target: (typeof targets)[0]) => {
+      const { repo, projectRef } = target
+      const result =
+        gitlabView === 'issues'
+          ? await window.api.gl.listIssues({
+              repoPath: repo.path,
+              repoId: repo.id,
+              sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab', projectRef),
+              projectRef,
+              state: 'opened',
+              assignee: activeIssueFilter === 'assigned-to-me' ? '@me' : undefined,
+              limit: 50
+            })
+          : await window.api.gl.listWorkItems({
+              repoPath: repo.path,
+              repoId: repo.id,
+              sourceContext: getTaskPageRepoSourceContext(repo, 'gitlab', projectRef),
+              projectRef,
+              state: activeMRFilter ?? 'opened',
+              page: 1,
+              perPage: 50
+            })
+      const typed = result as {
+        items: GitLabWorkItem[]
+        error?: { type?: string; message: string }
+      }
+      return { repoId: repo.id, projectRef, items: typed.items, error: typed.error }
+    }
+    void Promise.allSettled(targets.map(fetchItems))
       .then((results) => {
-        if (stale) {
-          return
-        }
+        if (stale) return
         const merged: GitLabWorkItem[] = []
-        const errs: string[] = []
-        for (const r of results) {
-          if (r.status !== 'fulfilled') {
-            errs.push(r.reason instanceof Error ? r.reason.message : String(r.reason))
+        const errors: string[] = []
+        for (const result of results) {
+          if (result.status !== 'fulfilled') {
+            errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
             continue
           }
-          for (const item of r.value.items) {
-            merged.push({
+          merged.push(
+            ...result.value.items.map((item) => ({
               ...item,
-              repoId: r.value.repoId
-            })
-          }
-          if (r.value.error) {
-            errs.push(r.value.error.message)
+              repoId: result.value.repoId,
+              ...(result.value.projectRef ? { projectRef: result.value.projectRef } : {})
+            }))
+          )
+          if (result.value.error?.type !== 'not_found' && result.value.error) {
+            errors.push(result.value.error.message)
           }
         }
         merged.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
         setGitlabItems(merged)
-        // Why: only banner when every eligible repo failed; a partial one would hide working rows in a mixed (non-GitLab) selection.
-        if (errs.length > 0 && merged.length === 0) {
-          setGitlabError(errs[0])
-        }
+        if (errors.length > 0 && merged.length === 0) setGitlabError(errors[0])
       })
       .finally(() => {
-        if (!stale) {
-          setGitlabLoading(false)
-        }
+        if (!stale) setGitlabLoading(false)
       })
     return () => {
       stale = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedReposKey covers every selectedRepos field read above (see its GitHub-scoped-context note); keying off the array ref would re-run on every parent render.
-  }, [taskSource, gitlabView, activeGitlabFilter, gitlabRefreshNonce, selectedReposKey])
-
+  }, [
+    activeGitlabFilter,
+    gitlabExecutionRepo,
+    gitlabRefreshNonce,
+    gitlabView,
+    selectedConfiguredGitLabProjects,
+    selectedRepos,
+    selectedReposKey,
+    setGitlabError,
+    setGitlabItems,
+    setGitlabLoading,
+    taskSource,
+    taskSourceHostAvailability
+  ])
   // Why: Todos fetch has its own effect — different trigger (no chip filter) and data path (gl.todos is user-scoped, not repo-scoped).
   useEffect(() => {
     if (taskSource !== 'gitlab' || gitlabView !== 'todos') {
       return
     }
-    if (!primaryRepo?.path) {
+    if (!gitlabExecutionRepo?.path || taskSourceHostAvailability.length > 0) {
       setGitlabTodos([])
       setGitlabTodosLoading(false)
       return
@@ -159,9 +144,9 @@ export function useTaskPageGitLabLoading(model: TaskPageProviderMetadataModel) {
     setGitlabTodosLoading(true)
     void window.api.gl
       .todos({
-        repoPath: primaryRepo.path,
-        repoId: primaryRepo.id,
-        sourceContext: getTaskPageRepoSourceContext(primaryRepo, 'gitlab')
+        repoPath: gitlabExecutionRepo.path,
+        repoId: gitlabExecutionRepo.id,
+        sourceContext: getTaskPageRepoSourceContext(gitlabExecutionRepo, 'gitlab')
       })
       .then((todos) => {
         if (!stale) {
@@ -185,9 +170,10 @@ export function useTaskPageGitLabLoading(model: TaskPageProviderMetadataModel) {
     taskSource,
     gitlabView,
     gitlabRefreshNonce,
-    primaryRepo,
+    gitlabExecutionRepo,
     setGitlabTodosLoading,
-    setGitlabTodos
+    setGitlabTodos,
+    taskSourceHostAvailability
   ])
   return model
 }
