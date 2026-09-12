@@ -290,15 +290,16 @@ export function createFolderWorkspaceMutationActions(
       try {
         // Why: deletion targets the folder's owner; focus may be on a different host.
         const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId: runtimeEnvironmentId })
+        const params = { folderWorkspaceId, ...(options?.deleteFiles ? { deleteFiles: true } : {}) }
         const deleted =
           target.kind === 'local'
-            ? await window.api.folderWorkspaces.delete({ folderWorkspaceId })
+            ? await window.api.folderWorkspaces.delete(params)
             : (
                 await callRuntimeRpc<{ deleted: boolean }>(
                   target,
                   'folderWorkspace.delete',
-                  { folderWorkspaceId },
-                  { timeoutMs: 15_000 }
+                  params,
+                  { timeoutMs: 120_000 }
                 )
               ).deleted
         if (!deleted) {

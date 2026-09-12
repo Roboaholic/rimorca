@@ -1,4 +1,4 @@
-import { compile, type ZodType } from 'zod'
+import type { ZodType } from 'zod'
 import {
   formatZodError,
   type RpcAnyMethodDeclaration,
@@ -28,11 +28,5 @@ export function parseRpcRequestParams(
 }
 
 function getCompiledParams(schema: ZodType): ZodType {
-  const cached = compiledParams.get(schema)
-  if (cached) {
-    return cached
-  }
-  const compiled = compile(schema)
-  compiledParams.set(schema, compiled)
-  return compiled
+  return schema
 }

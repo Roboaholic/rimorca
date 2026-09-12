@@ -168,7 +168,8 @@ export function registerFolderWorkspaceHandlers(
       rawArgs,
       'invalid_folder_workspace_delete_args'
     )
-    // Why: the runtime owns PTY/browser/session teardown and notifies on success.
-    return (await runtime.deleteFolderWorkspace(args.folderWorkspaceId)).deleted
+    return (
+      await runtime.deleteFolderWorkspace(args.folderWorkspaceId, { deleteFiles: args.deleteFiles })
+    ).deleted
   })
 }

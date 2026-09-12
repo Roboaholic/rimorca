@@ -1,35 +1,38 @@
 import type { TaskPageComposerActionsModel } from '../../use-task-page-composer-actions'
 import { cn } from '@/lib/utils'
-import TaskProjectSourceCombobox from '@/components/task-project-source-combobox'
-import { normalizeTaskRepoSelection } from '@/components/task-page-default-repo-selection'
-import { toast } from 'sonner'
+import { useAppStore } from '@/store'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { translate } from '@/i18n/i18n'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
-import { LoaderCircle, RefreshCw } from 'lucide-react'
+import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 export function TaskPageGitLabFilters({
   model
 }: {
   model: TaskPageComposerActionsModel
 }): React.JSX.Element | null {
   const {
-    updateSettings,
     eligibleRepos,
-    repoSelection,
-    setRepoSelection,
-    taskPickerGroups,
-    taskPickerRepos,
     gitLabIssueFilters,
     gitLabMRFilters,
-    getTaskPickerRepoHostLabel,
     setGitlabFilter,
     gitlabLoading,
     setGitlabRefreshNonce,
     gitlabView,
     setGitlabView,
     gitlabTodosLoading,
-    activeGitlabFilter
+    activeGitlabFilter,
+    configuredGitLabProjects,
+    gitlabProjectScope,
+    setGitlabProjectScope,
+    gitlabExecutionRepo,
+    setGitlabExecutionRepoId
   } = model
+  const openGitLabProjectSettings = (): void => {
+    const state = useAppStore.getState()
+    state.openSettingsTarget({ pane: 'general', repoId: null, sectionId: 'gitlab-projects' })
+    state.openSettingsPage()
+  }
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -54,42 +57,41 @@ export function TaskPageGitLabFilters({
             )
           })}
         </div>
-        <div className="min-w-0 w-full sm:w-[200px]">
-          <TaskProjectSourceCombobox
-            groups={taskPickerGroups}
-            selected={repoSelection}
-            getRepoHostLabel={getTaskPickerRepoHostLabel}
-            onChange={(next) => {
-              const normalized = normalizeTaskRepoSelection(eligibleRepos, next)
-              setRepoSelection(normalized)
-              void updateSettings({
-                defaultRepoSelection: [...normalized]
-              }).catch(() => {
-                toast.error(
-                  translate(
-                    'auto.components.TaskPage.dfd72673e7',
-                    'Failed to save project selection.'
-                  )
-                )
-              })
-            }}
-            onSelectAll={() => {
-              const allIds = new Set(taskPickerRepos.map((r) => r.id))
-              setRepoSelection(allIds)
-              void updateSettings({
-                defaultRepoSelection: null
-              }).catch(() => {
-                toast.error(
-                  translate(
-                    'auto.components.TaskPage.dfd72673e7',
-                    'Failed to save project selection.'
-                  )
-                )
-              })
-            }}
-            triggerClassName="h-8 w-full rounded-md border border-border/50 bg-muted/50 px-2 text-xs font-medium shadow-sm transition hover:bg-muted/50 focus:ring-2 focus:ring-ring/20 focus:outline-none"
-          />
-        </div>
+        {configuredGitLabProjects.length > 0 && gitlabView !== 'todos' ? (
+          <Select value={gitlabProjectScope} onValueChange={setGitlabProjectScope}>
+            <SelectTrigger className="h-8 w-[220px] rounded-md border-border/50 bg-muted/50 text-xs font-medium shadow-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All configured GitLab projects</SelectItem>
+              {configuredGitLabProjects.map((project) => (
+                <SelectItem key={`${project.host}/${project.path}`} value={`${project.host}/${project.path}`}>
+                  {project.path}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {eligibleRepos.length > 0 ? (
+          <Select value={gitlabExecutionRepo?.id ?? undefined} onValueChange={setGitlabExecutionRepoId}>
+            <SelectTrigger className="h-8 w-[240px] rounded-md border-border/50 bg-muted/50 text-xs font-medium shadow-sm" aria-label="GitLab read location">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {eligibleRepos.map((repo) => (
+                <SelectItem key={repo.id} value={repo.id}>Read via {repo.displayName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="outline" size="icon-sm" onClick={openGitLabProjectSettings} aria-label="Add GitLab project" className="h-8 w-8 border-border/50 bg-muted/50">
+              <Plus className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>Add GitLab project</TooltipContent>
+        </Tooltip>
       </div>
       <div
         className="min-w-0 rounded-md rounded-b-none border border-border/50 bg-muted/50 px-3 pt-2 pb-0 shadow-sm"

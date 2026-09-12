@@ -4,6 +4,8 @@ import { runWorktreeBatchDelete, runWorktreeDelete } from './delete-worktree-flo
 import type { WorktreeDeleteIdentity } from './worktree-delete-request'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { ConfirmationDialogContextValue } from '@/components/confirmation-dialog-context'
+import { runFolderWorkspaceDelete } from './delete-folder-workspace-flow'
 
 export type WorktreeContextMenuDeleteIntent =
   | { kind: 'worktree'; worktree: WorktreeDeleteIdentity }
@@ -37,7 +39,10 @@ export function createWorktreeContextMenuDeleteIntent(args: {
   return { kind: 'worktree', worktree: { id, instanceId, hostId } }
 }
 
-export function runWorktreeContextMenuDeleteIntent(intent: WorktreeContextMenuDeleteIntent): void {
+export function runWorktreeContextMenuDeleteIntent(
+  intent: WorktreeContextMenuDeleteIntent,
+  confirm?: ConfirmationDialogContextValue
+): void {
   if (intent.kind === 'batch') {
     runWorktreeBatchDelete(intent.worktrees)
     return
@@ -49,32 +54,22 @@ export function runWorktreeContextMenuDeleteIntent(intent: WorktreeContextMenuDe
     })
     return
   }
-  const state = useAppStore.getState()
-  void state
-    .deleteFolderWorkspace(
-      intent.folderWorkspaceId,
-      intent.executionHostId ? { executionHostId: intent.executionHostId } : undefined
-    )
-    .then((deleted) => {
-      const current = useAppStore.getState()
-      if (
-        deleted &&
-        current.activeWorktreeId === folderWorkspaceKey(intent.folderWorkspaceId) &&
-        (!intent.executionHostId ||
-          current.activeWorkspaceExecutionHostId === intent.executionHostId)
-      ) {
-        current.setActiveWorktree(null)
-      }
-    })
+  if (!confirm) return
+  void runFolderWorkspaceDelete({
+    folderWorkspaceId: intent.folderWorkspaceId,
+    executionHostId: intent.executionHostId,
+    confirm
+  })
 }
 
 export function deferWorktreeContextMenuDeleteIntent(
   intent: WorktreeContextMenuDeleteIntent,
   onDispatched?: () => void,
-  defer: (callback: () => void) => void = (callback) => window.setTimeout(callback, 0)
+  defer: (callback: () => void) => void = (callback) => window.setTimeout(callback, 0),
+  confirm?: ConfirmationDialogContextValue
 ): void {
   defer(() => {
-    runWorktreeContextMenuDeleteIntent(intent)
+    runWorktreeContextMenuDeleteIntent(intent, confirm)
     onDispatched?.()
   })
 }

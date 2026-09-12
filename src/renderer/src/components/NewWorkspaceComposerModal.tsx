@@ -231,8 +231,8 @@ function QuickTabBody({
   const isFolderWorkspaceTarget = selectedProjectOption?.kind === 'project-group'
   const primaryActionLabel = isFolderWorkspaceTarget
     ? getFolderWorkspacePrimaryActionLabel({
-        isRepoManaged: false,
-        deriveRepoManaged: false
+        isRepoManaged: cardProps.showRepoManagedDerive,
+        deriveRepoManaged: cardProps.deriveRepoManaged
       })
     : cardProps.selectedRepoIsGit
       ? translate('auto.components.NewWorkspaceComposerModal.createWorktree', 'Create worktree')

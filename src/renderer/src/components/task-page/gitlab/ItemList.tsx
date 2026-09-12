@@ -16,7 +16,8 @@ export function TaskPageGitLabItemList({
     gitlabEmptyState,
     displayedGitLabItems,
     openGitLabDetailPage,
-    handleUseGitLabItem
+    handleUseGitLabItem,
+    taskSourceAvailabilityNotice
   } = model
   return (
     <div className="flex min-h-0 max-h-full flex-col rounded-md border border-t-0 border-border/50 bg-muted/50 overflow-hidden rounded-t-none shadow-sm">
@@ -59,7 +60,10 @@ export function TaskPageGitLabItemList({
             ))}
           </div>
         ) : null}
-        {!gitlabLoading && displayedGitLabItems.length === 0 && !gitlabError ? (
+        {!gitlabLoading &&
+        displayedGitLabItems.length === 0 &&
+        !gitlabError &&
+        !taskSourceAvailabilityNotice ? (
           <div className="px-4 py-12 text-center">
             <p className="text-base font-medium text-foreground">{gitlabEmptyState.title}</p>
             <p className="mt-2 text-sm text-muted-foreground">{gitlabEmptyState.description}</p>

@@ -1,3 +1,4 @@
+import { resolveGitLabExecutionRepo } from './task-page-gitlab-execution-repo'
 import type { TaskPageStoreBindingsModel } from './use-task-page-store-bindings'
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import {
@@ -41,7 +42,13 @@ export function useTaskPageRepoSelection(model: TaskPageStoreBindingsModel) {
     preflightStatusCurrent,
     linearConnected
   } = model
-  const eligibleRepos = useMemo(() => getTaskEligibleRepos(repos), [repos])
+  const eligibleRepos = useMemo(
+    () =>
+      getTaskEligibleRepos(repos, {
+        allowRegisteredProjects: (settings?.gitlabProjects?.configured?.length ?? 0) > 0
+      }),
+    [repos, settings?.gitlabProjects?.configured?.length]
+  )
 
   // Why: initial selection precedence — explicit preselection > persisted defaultRepoSelection > all eligible; preselection wins so "open tasks for this repo" lands single-repo.
   const resolvedInitialSelection = useMemo<ReadonlySet<string>>(() => {
@@ -112,6 +119,13 @@ export function useTaskPageRepoSelection(model: TaskPageStoreBindingsModel) {
 
   // Why: many affordances need *a* repo; use the first selected as default, while cross-repo dialogs still let the user override per-action.
   const primaryRepo = selectedRepos[0] ?? null
+  const configuredGitLabProjects = settings?.gitlabProjects?.configured ?? []
+  const [gitlabExecutionRepoId, setGitlabExecutionRepoId] = useState<string | null>(null)
+  const gitlabExecutionRepo = useMemo(
+    () =>
+      resolveGitLabExecutionRepo(eligibleRepos, gitlabExecutionRepoId, selectedRepos),
+    [eligibleRepos, gitlabExecutionRepoId, selectedRepos]
+  )
   const linearWorkspaces = linearStatus.workspaces ?? []
   const selectedLinearWorkspaceId =
     linearStatus.selectedWorkspaceId ??
@@ -218,6 +232,10 @@ export function useTaskPageRepoSelection(model: TaskPageStoreBindingsModel) {
     linearModeOptions: typeof linearModeOptions
     jiraPresets: typeof jiraPresets
     gitLabIssueFilters: typeof gitLabIssueFilters
+    configuredGitLabProjects: typeof configuredGitLabProjects
+    gitlabExecutionRepoId: typeof gitlabExecutionRepoId
+    setGitlabExecutionRepoId: typeof setGitlabExecutionRepoId
+    gitlabExecutionRepo: typeof gitlabExecutionRepo
     gitLabMRFilters: typeof gitLabMRFilters
     linearViewOptions: typeof linearViewOptions
     linearGroupOptions: typeof linearGroupOptions
@@ -249,6 +267,10 @@ export function useTaskPageRepoSelection(model: TaskPageStoreBindingsModel) {
   nextModel.githubModeButtons = githubModeButtons
   nextModel.linearModeOptions = linearModeOptions
   nextModel.jiraPresets = jiraPresets
+  nextModel.configuredGitLabProjects = configuredGitLabProjects
+  nextModel.gitlabExecutionRepoId = gitlabExecutionRepoId
+  nextModel.setGitlabExecutionRepoId = setGitlabExecutionRepoId
+  nextModel.gitlabExecutionRepo = gitlabExecutionRepo
   nextModel.gitLabIssueFilters = gitLabIssueFilters
   nextModel.gitLabMRFilters = gitLabMRFilters
   nextModel.linearViewOptions = linearViewOptions

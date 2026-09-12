@@ -23,6 +23,7 @@ export function useTaskPageRuntimeHosts(model: TaskPageRepoSelectionModel) {
     runtimeEnvironments,
     runtimeStatusByEnvironmentId,
     selectedRepos,
+    gitlabExecutionRepo,
     defaultTaskSource,
     visibleTaskProviders
   } = model
@@ -44,15 +45,17 @@ export function useTaskPageRuntimeHosts(model: TaskPageRepoSelectionModel) {
     },
     []
   )
-  const taskSourceRepoContexts = useMemo(
-    () =>
-      taskSource === 'github' || taskSource === 'gitlab'
-        ? selectedRepos
-            .map((repo) => getTaskPageRepoSourceContext(repo, taskSource))
-            .filter((context): context is TaskSourceContext => context !== null)
-        : [],
-    [selectedRepos, taskSource]
-  )
+  const taskSourceRepoContexts = useMemo(() => {
+    if (taskSource === 'gitlab') {
+      const context = getTaskPageRepoSourceContext(gitlabExecutionRepo, 'gitlab')
+      return context ? [context] : []
+    }
+    return taskSource === 'github'
+      ? selectedRepos
+          .map((repo) => getTaskPageRepoSourceContext(repo, 'github'))
+          .filter((context): context is TaskSourceContext => context !== null)
+      : []
+  }, [gitlabExecutionRepo, selectedRepos, taskSource])
   const hostRegistryById = useMemo(
     () =>
       new Map(

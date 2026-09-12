@@ -13,7 +13,8 @@ export function useTaskPageProviderState(model: TaskPageSourceAvailabilityModel)
     visibleTaskProviders,
     preferredTaskSource,
     taskSource,
-    setTaskSource
+    setTaskSource,
+    configuredGitLabProjects
   } = model
   const taskSourceManuallyChangedRef = useRef(false)
   const lastPageTaskSourceRef = useRef(pageData.taskSource)
@@ -63,6 +64,16 @@ export function useTaskPageProviderState(model: TaskPageSourceAvailabilityModel)
   const [gitlabLoading, setGitlabLoading] = useState(false)
   const [gitlabError, setGitlabError] = useState<string | null>(null)
   const [gitlabRefreshNonce, setGitlabRefreshNonce] = useState(0)
+  const [gitlabProjectScope, setGitlabProjectScope] = useState('all')
+  const selectedConfiguredGitLabProjects = useMemo(
+    () =>
+      gitlabProjectScope === 'all'
+        ? configuredGitLabProjects
+        : configuredGitLabProjects.filter(
+            (project) => `${project.host}/${project.path}` === gitlabProjectScope
+          ),
+    [configuredGitLabProjects, gitlabProjectScope]
+  )
   // Why: separate from gitlabItems so the dialog target survives a list refresh that removes the item from the visible filter (e.g. closing an MR).
   const [gitlabDialogItem, setGitlabDialogItem] = useState<GitLabWorkItem | null>(null)
 
@@ -122,6 +133,9 @@ export function useTaskPageProviderState(model: TaskPageSourceAvailabilityModel)
     setGitlabError: typeof setGitlabError
     gitlabRefreshNonce: typeof gitlabRefreshNonce
     setGitlabRefreshNonce: typeof setGitlabRefreshNonce
+    gitlabProjectScope: typeof gitlabProjectScope
+    setGitlabProjectScope: typeof setGitlabProjectScope
+    selectedConfiguredGitLabProjects: typeof selectedConfiguredGitLabProjects
     gitlabDialogItem: typeof gitlabDialogItem
     setGitlabDialogItem: typeof setGitlabDialogItem
     gitlabView: typeof gitlabView
@@ -157,6 +171,9 @@ export function useTaskPageProviderState(model: TaskPageSourceAvailabilityModel)
   nextModel.setGitlabError = setGitlabError
   nextModel.gitlabRefreshNonce = gitlabRefreshNonce
   nextModel.setGitlabRefreshNonce = setGitlabRefreshNonce
+  nextModel.gitlabProjectScope = gitlabProjectScope
+  nextModel.setGitlabProjectScope = setGitlabProjectScope
+  nextModel.selectedConfiguredGitLabProjects = selectedConfiguredGitLabProjects
   nextModel.gitlabDialogItem = gitlabDialogItem
   nextModel.setGitlabDialogItem = setGitlabDialogItem
   nextModel.gitlabView = gitlabView
