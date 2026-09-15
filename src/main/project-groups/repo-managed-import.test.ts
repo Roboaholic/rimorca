@@ -32,6 +32,15 @@ function makeStore(seed?: { groups?: ProjectGroup[]; workspaces?: FolderWorkspac
       groups.push(group)
       return group
     },
+    updateProjectGroup: (
+      groupId: string,
+      updates: Pick<ProjectGroup, 'createdFrom'>
+    ): ProjectGroup | null => {
+      const group = groups.find((entry) => entry.id === groupId)
+      if (!group) return null
+      group.createdFrom = updates.createdFrom
+      return group
+    },
     createFolderWorkspace: (input: {
       projectGroupId: string
       name?: string
@@ -112,6 +121,22 @@ describe('importRepoManagedProject', () => {
     expect(store.getFolderWorkspaces()).toEqual([
       expect.objectContaining({ projectGroupId: group.id, folderPath: '/src/aosp' })
     ])
+  })
+
+  it('upgrades an existing folder-scanned group so derive controls become available', () => {
+    const store = makeStore()
+    const group = store.createProjectGroup({
+      name: 'AOSP',
+      parentPath: '/src/aosp',
+      parentGroupId: null,
+      createdFrom: 'folder-scan'
+    })
+
+    const result = importRepoManagedProject({ store, parentPath: '/src/aosp' })
+
+    expect(result.group?.id).toBe(group.id)
+    expect(result.group?.createdFrom).toBe('repo-managed')
+    expect(store.getProjectGroups()).toHaveLength(1)
   })
 
   it('does not reuse a group on a different connection', () => {

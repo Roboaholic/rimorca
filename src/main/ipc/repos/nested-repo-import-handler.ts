@@ -12,6 +12,7 @@ import {
   createNestedProjectGroupResolver,
   resolveNestedRepoSelection
 } from '../../project-groups/nested-repo-import'
+import { importRepoManagedProject } from '../../project-groups/repo-managed-import'
 import { createNestedRepoImportTargetResolver } from '../../project-groups/nested-repo-import-target'
 import { getSshGitProvider } from '../../providers/ssh-git-dispatch'
 import { LOCAL_EXECUTION_HOST_ID, toSshExecutionHostId } from '../../../shared/execution-host'
@@ -48,6 +49,16 @@ export function registerNestedRepoImportHandler(mainWindow: BrowserWindow, store
           options: { timeoutMs: 15_000 }
         }))
       const selection = resolveNestedRepoSelection({ scan, projectPaths: requestedPaths })
+      if (scan.selectedPathKind === 'repo_managed' && args.mode === 'group') {
+        const result = importRepoManagedProject({
+          store,
+          parentPath: scan.selectedPath,
+          groupName: args.groupName,
+          connectionId: args.connectionId ?? null
+        })
+        notifyReposChanged(mainWindow)
+        return result
+      }
       const groupResolver = createNestedProjectGroupResolver({
         parentPath: scan.selectedPath,
         groupName: args.groupName ?? '',

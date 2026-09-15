@@ -15,6 +15,7 @@ import {
   createNestedProjectGroupResolver,
   resolveNestedRepoSelection
 } from '../project-groups/nested-repo-import'
+import { importRepoManagedProject } from '../project-groups/repo-managed-import'
 import { createNestedRepoImportTargetResolver } from '../project-groups/nested-repo-import-target'
 import type { RuntimeStore } from './runtime-store-contract'
 
@@ -56,6 +57,25 @@ export class RuntimeNestedRepoImport {
       throw new Error('Project path must be an absolute path')
     }
     const scan = await scanNestedRepos({ path: args.parentPath, options: { timeoutMs: 15_000 } })
+    if (scan.selectedPathKind === 'repo_managed' && args.mode === 'group') {
+      if (!store.getProjectGroups || !store.getFolderWorkspaces || !store.createFolderWorkspace) {
+        throw new Error('runtime_unavailable')
+      }
+      const result = importRepoManagedProject({
+        store: {
+          getProjectGroups: store.getProjectGroups,
+          createProjectGroup: store.createProjectGroup,
+          updateProjectGroup: store.updateProjectGroup,
+          getFolderWorkspaces: store.getFolderWorkspaces,
+          createFolderWorkspace: store.createFolderWorkspace
+        },
+        parentPath: scan.selectedPath,
+        groupName: args.groupName
+      })
+      this.deps.invalidateResolvedWorktrees()
+      this.deps.notifyReposChanged()
+      return result
+    }
     const selection = resolveNestedRepoSelection({ scan, projectPaths: args.projectPaths })
     const groupResolver = createNestedProjectGroupResolver({
       parentPath: args.parentPath,

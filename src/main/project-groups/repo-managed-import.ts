@@ -15,6 +15,10 @@ type RepoManagedImportStore = {
     parentGroupId?: string | null
     createdFrom: ProjectGroup['createdFrom']
   }) => ProjectGroup
+  updateProjectGroup?: (
+    groupId: string,
+    updates: Pick<ProjectGroup, 'createdFrom'>
+  ) => ProjectGroup | null
   getFolderWorkspaces: () => FolderWorkspace[]
   createFolderWorkspace: (input: {
     projectGroupId: string
@@ -61,15 +65,19 @@ export function importRepoManagedProject(args: {
     parentPath,
     connectionId
   })
-  const group =
-    existingGroup ??
-    args.store.createProjectGroup({
-      name: args.groupName?.trim() || getRuntimePathBasename(parentPath) || 'Repo project',
-      parentPath,
-      connectionId,
-      parentGroupId: null,
-      createdFrom: REPO_MANAGED_CREATED_FROM
-    })
+  const group = existingGroup
+    ? existingGroup.createdFrom === REPO_MANAGED_CREATED_FROM
+      ? existingGroup
+      : (args.store.updateProjectGroup?.(existingGroup.id, {
+          createdFrom: REPO_MANAGED_CREATED_FROM
+        }) ?? existingGroup)
+    : args.store.createProjectGroup({
+        name: args.groupName?.trim() || getRuntimePathBasename(parentPath) || 'Repo project',
+        parentPath,
+        connectionId,
+        parentGroupId: null,
+        createdFrom: REPO_MANAGED_CREATED_FROM
+      })
   const alreadyKnown = Boolean(findMainFolderWorkspace(args.store.getFolderWorkspaces(), group))
   if (!alreadyKnown) {
     args.store.createFolderWorkspace({
